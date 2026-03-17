@@ -1,0 +1,5 @@
+{
+  "name": "frontend",
+  "description": "Next.js project with Tailwind CSS, featuring Login and Register pages with form validation.",
+  "requestFramePermissions": []
+}
