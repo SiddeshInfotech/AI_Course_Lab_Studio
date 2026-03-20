@@ -14,32 +14,11 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { getDashboardData } from "../../lib/api";
-
-interface DashboardData {
-  user: {
-    id: number;
-    name: string;
-    email: string;
-    created_at: string;
-  };
-  stats: {
-    streak: number;
-    modulesCompleted: number;
-    modulesEnrolled: number;
-    accuracy: number;
-  };
-  courses: Array<{
-    id: number;
-    title: string;
-    description: string;
-    imageUrl?: string;
-    progress: {
-      percentComplete: number;
-      status: "not_started" | "in_progress" | "completed";
-    };
-  }>;
-}
+import {
+  getDashboardData,
+  logoutUser,
+  type DashboardData,
+} from "../../lib/api";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -52,19 +31,16 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboard = async () => {
       try {
-        const token =
-          localStorage.getItem("accessToken") || localStorage.getItem("token");
-        if (!token) {
-          console.warn("No token found, redirecting to login");
+        const data = await getDashboardData();
+        setDashboardData(data);
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          err.message === "No authentication token found"
+        ) {
           router.push("/");
           return;
         }
-
-        console.log("Fetching dashboard data...");
-        const data = await getDashboardData();
-        console.log("Dashboard data received:", data);
-        setDashboardData(data);
-      } catch (err) {
         console.error("Dashboard error:", err);
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -78,24 +54,7 @@ export default function DashboardPage() {
   const handleLogout = async () => {
     try {
       const refreshToken = localStorage.getItem("refreshToken");
-      const token =
-        localStorage.getItem("accessToken") || localStorage.getItem("token");
-
-      if (token) {
-        await fetch(
-          `${
-            process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api"
-          }/auth/logout`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ refreshToken: refreshToken || token }),
-          },
-        );
-      }
+      await logoutUser(refreshToken || undefined);
 
       localStorage.removeItem("accessToken");
       localStorage.removeItem("token");

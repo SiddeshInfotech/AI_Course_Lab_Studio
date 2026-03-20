@@ -28,6 +28,35 @@ export type RegisterResponse = LoginResponse & {
   message?: string;
 };
 
+export type DashboardData = {
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    created_at: string;
+  };
+  stats: {
+    streak: number;
+    modulesCompleted: number;
+    modulesEnrolled: number;
+    accuracy: number;
+  };
+  courses: Array<{
+    id: number;
+    title: string;
+    description: string;
+    imageUrl?: string;
+    progress: {
+      percentComplete: number;
+      status: "not_started" | "in_progress" | "completed";
+    };
+  }>;
+};
+
+const getStoredAccessToken = (): string | null => {
+  return localStorage.getItem("accessToken") || localStorage.getItem("token");
+};
+
 const parseErrorMessage = async (res: Response): Promise<string> => {
   try {
     const data = await res.json();
@@ -73,9 +102,8 @@ export const registerUser = async (
   return (await res.json()) as RegisterResponse;
 };
 
-export const logoutUser = async (refreshToken: string): Promise<void> => {
-  const token =
-    localStorage.getItem("accessToken") || localStorage.getItem("token");
+export const logoutUser = async (refreshToken?: string): Promise<void> => {
+  const token = getStoredAccessToken();
 
   await fetch(`${API_BASE_URL}/auth/logout`, {
     method: "POST",
@@ -89,9 +117,8 @@ export const logoutUser = async (refreshToken: string): Promise<void> => {
   });
 };
 
-export const getDashboardData = async (): Promise<any> => {
-  const token =
-    localStorage.getItem("accessToken") || localStorage.getItem("token");
+export const getDashboardData = async (): Promise<DashboardData> => {
+  const token = getStoredAccessToken();
 
   if (!token) {
     throw new Error("No authentication token found");
@@ -112,5 +139,5 @@ export const getDashboardData = async (): Promise<any> => {
     );
   }
 
-  return (await res.json()) as any;
+  return (await res.json()) as DashboardData;
 };

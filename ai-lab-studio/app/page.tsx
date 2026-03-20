@@ -86,10 +86,14 @@ export default function LoginPage() {
 
           {/* Email Field */}
           <div className="space-y-2">
-            <label className="text-[11px] font-bold text-slate-500 tracking-wider uppercase">
+            <label
+              htmlFor="email"
+              className="text-[11px] font-bold text-slate-500 tracking-wider uppercase"
+            >
               Email Address
             </label>
             <input
+              id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -102,7 +106,10 @@ export default function LoginPage() {
           {/* Password Field */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-slate-500 tracking-wider uppercase">
+              <label
+                htmlFor="password"
+                className="text-[11px] font-bold text-slate-500 tracking-wider uppercase"
+              >
                 Password
               </label>
               <button
@@ -116,6 +123,7 @@ export default function LoginPage() {
             </div>
             <div className="relative">
               <input
+                id="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
