@@ -1,12 +1,18 @@
 import {
     getAllCourses,
     getCourseById,
+    getCourseWithLessons,
     createCourse,
     updateCourse,
     deleteCourse,
     enrollUser,
     getEnrollment,
     getUserEnrollments,
+    getLessonsByCourse,
+    getLessonById,
+    createLesson,
+    updateLesson,
+    deleteLesson,
 } from "../models/courseModel.js";
 
 // GET /api/courses — public
@@ -40,6 +46,23 @@ export const getCourse = async (req, res) => {
         const course = await getCourseById(id);
         if (!course) return res.status(404).json({ message: "Course not found" });
         res.json(course);
+    } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+// GET /api/courses/:id/content — protected with access limit
+export const getCourseContent = async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const course = await getCourseWithLessons(id);
+        if (!course) return res.status(404).json({ message: "Course not found" });
+
+        // Return course with lessons and usage info from middleware
+        res.json({
+            course,
+            usageInfo: req.usageInfo,
+        });
     } catch (error) {
         res.status(500).json({ message: "Internal server error" });
     }
@@ -123,6 +146,90 @@ export const enroll = async (req, res) => {
 
         await enrollUser(userId, courseId);
         res.status(201).json({ message: "Enrolled successfully" });
+    } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+// GET /api/courses/:id/lessons — get all lessons for a course
+export const listLessons = async (req, res) => {
+    try {
+        const courseId = parseInt(req.params.id);
+        const course = await getCourseById(courseId);
+        if (!course) return res.status(404).json({ message: "Course not found" });
+
+        const lessons = await getLessonsByCourse(courseId);
+        res.json(lessons);
+    } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+// POST /api/courses/:id/lessons — add a lesson to a course
+export const addLesson = async (req, res) => {
+    try {
+        const courseId = parseInt(req.params.id);
+        const course = await getCourseById(courseId);
+        if (!course) return res.status(404).json({ message: "Course not found" });
+
+        const { title, description, content, videoUrl, orderIndex, duration } = req.body;
+
+        if (!title || orderIndex === undefined) {
+            return res.status(400).json({ message: "Title and orderIndex are required" });
+        }
+
+        const lesson = await createLesson({
+            courseId,
+            title,
+            description: description || null,
+            content: content || null,
+            videoUrl: videoUrl || null,
+            orderIndex,
+            duration: duration || null,
+        });
+
+        res.status(201).json(lesson);
+    } catch (error) {
+        if (error.code === "P2002") {
+            return res.status(400).json({ message: "Lesson with this orderIndex already exists" });
+        }
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+// PUT /api/courses/:courseId/lessons/:lessonId — update a lesson
+export const editLesson = async (req, res) => {
+    try {
+        const lessonId = parseInt(req.params.lessonId);
+        const existing = await getLessonById(lessonId);
+        if (!existing) return res.status(404).json({ message: "Lesson not found" });
+
+        const { title, description, content, videoUrl, orderIndex, duration } = req.body;
+
+        const updated = await updateLesson(lessonId, {
+            ...(title && { title }),
+            ...(description !== undefined && { description }),
+            ...(content !== undefined && { content }),
+            ...(videoUrl !== undefined && { videoUrl }),
+            ...(orderIndex !== undefined && { orderIndex }),
+            ...(duration !== undefined && { duration }),
+        });
+
+        res.json(updated);
+    } catch (error) {
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+// DELETE /api/courses/:courseId/lessons/:lessonId — delete a lesson
+export const removeLesson = async (req, res) => {
+    try {
+        const lessonId = parseInt(req.params.lessonId);
+        const existing = await getLessonById(lessonId);
+        if (!existing) return res.status(404).json({ message: "Lesson not found" });
+
+        await deleteLesson(lessonId);
+        res.json({ message: "Lesson deleted" });
     } catch (error) {
         res.status(500).json({ message: "Internal server error" });
     }

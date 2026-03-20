@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 200" width="100%" height="100%">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@700&amp;family=Noto+Sans+Devanagari:wght@400;500&amp;display=swap');
+      .title { 
+        font-family: 'Noto Serif Devanagari', serif; 
+        font-size: 100px; 
+        font-weight: 700; 
+        fill: #545950; 
+      }
+      .subtitle { 
+        font-family: 'Noto Sans Devanagari', sans-serif; 
+        font-size: 22px; 
+        font-weight: 500;
+        fill: #888888; 
+      }
+      .separator {
+        fill: #CCCCCC;
+        margin: 0 10px;
+      }
+    </style>
+  </defs>
+  
+  <!-- Main Logo Text -->
+  <text x="250" y="120" text-anchor="middle" class="title">सिध्देश</text>
+  
+  <!-- Orange Dot (Stylized element representing the dot in the logo) -->
+  <circle cx="320" cy="85" r="8" fill="#F27D21" />
+  
+  <!-- Subtitle -->
+  <text x="250" y="175" text-anchor="middle" class="subtitle">
+    तंत्रज्ञान <tspan class="separator"> | </tspan> संवर्धन <tspan class="separator"> | </tspan> सुरक्षा
+  </text>
+</svg>
