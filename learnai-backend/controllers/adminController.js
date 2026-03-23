@@ -44,17 +44,18 @@ export const getUser = async (req, res) => {
 
 export const addUser = async (req, res) => {
     try {
-        const { name, email, password, isAdmin } = req.body;
+        const { name, username, email, password, isAdmin } = req.body;
 
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: "Name, email, and password are required" });
+        if (!name || !username || !password) {
+            return res.status(400).json({ message: "Name, username, and password are required" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const user = await createUser({
             name,
-            email,
+            username,
+            email: email || null,
             password: hashedPassword,
             isAdmin: isAdmin || false,
         });
@@ -62,12 +63,13 @@ export const addUser = async (req, res) => {
         res.status(201).json({
             id: user.id,
             name: user.name,
+            username: user.username,
             email: user.email,
             isAdmin: user.isAdmin,
         });
     } catch (error) {
         if (error.code === "P2002") {
-            return res.status(400).json({ message: "Email already exists" });
+            return res.status(400).json({ message: "Username or email already exists" });
         }
         console.error("Add user error:", error);
         res.status(500).json({ message: "Internal server error" });

@@ -6,6 +6,7 @@ export const getAllUsers = () =>
         select: {
             id: true,
             name: true,
+            username: true,
             email: true,
             isAdmin: true,
             created_at: true,
@@ -22,6 +23,7 @@ export const getUserById = (id) =>
         select: {
             id: true,
             name: true,
+            username: true,
             email: true,
             isAdmin: true,
             created_at: true,
@@ -60,13 +62,13 @@ export const getDashboardStats = async () => {
         prisma.user.findMany({
             take: 5,
             orderBy: { created_at: "desc" },
-            select: { id: true, name: true, email: true, created_at: true },
+            select: { id: true, name: true, username: true, email: true, created_at: true },
         }),
         prisma.enrollment.findMany({
             take: 5,
             orderBy: { enrolledAt: "desc" },
             include: {
-                user: { select: { name: true, email: true } },
+                user: { select: { name: true, username: true, email: true } },
                 course: { select: { title: true } },
             },
         }),

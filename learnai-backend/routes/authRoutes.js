@@ -1,7 +1,7 @@
 import express from "express";
 import {
-    register,
     login,
+    register,
     refreshSession,
     logout,
     me,

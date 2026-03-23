@@ -7,6 +7,7 @@ export const getUserProfile = (userId) =>
         select: {
             id: true,
             name: true,
+            username: true,
             email: true,
             created_at: true,
         },

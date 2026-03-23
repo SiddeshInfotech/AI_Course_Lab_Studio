@@ -74,65 +74,29 @@ const buildAuthResponse = ({ userId, sessionId, refreshToken }) => {
 const getSafeUser = (user) => ({
     id: user.id,
     name: user.name,
+    username: user.username,
     email: user.email,
     isAdmin: user.isAdmin,
     created_at: user.created_at,
 });
 
-export const register = async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
-
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: "Name, email, and password are required" });
-        }
-
-        const existingUser = await prisma.user.findUnique({
-            where: { email },
-            select: { id: true },
-        });
-
-        if (existingUser) {
-            return res.status(400).json({ message: "Email already in use" });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await prisma.user.create({
-            data: {
-                name,
-                email,
-                password: hashedPassword,
-            },
-        });
-
-        const { session, refreshToken } = await createSession(user.id, req);
-        const auth = buildAuthResponse({
-            userId: user.id,
-            sessionId: session.id,
-            refreshToken,
-        });
-
-        return res.status(201).json({
-            message: "User registered successfully",
-            user: getSafeUser(user),
-            ...auth,
-        });
-    } catch (error) {
-        return res.status(500).json({ message: "Internal server error" });
-    }
-};
-
 export const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { username, email, password } = req.body;
+        const loginUsername =
+            typeof username === "string" && username.trim()
+                ? username.trim()
+                : typeof email === "string" && email.trim()
+                    ? email.trim()
+                    : "";
 
         // validation
-        if (!email || !password) {
+        if (!loginUsername || !password) {
             return res.status(400).json({ message: "All fields required" });
         }
 
         const user = await prisma.user.findUnique({
-            where: { email },
+            where: { username: loginUsername },
         });
 
         if (!user) {
@@ -161,6 +125,59 @@ export const login = async (req, res) => {
     }
 };
 
+export const register = async (req, res) => {
+    try {
+        const { name, username, email, password } = req.body;
+
+        if (!name || !username || !password) {
+            return res.status(400).json({ message: "Name, username, and password are required" });
+        }
+
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { username },
+                    ...(email ? [{ email }] : []),
+                ],
+            },
+        });
+
+        if (existingUser) {
+            if (existingUser.username === username) {
+                return res.status(400).json({ message: "Username already exists" });
+            }
+            return res.status(400).json({ message: "Email already exists" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const user = await prisma.user.create({
+            data: {
+                name: name.trim(),
+                username: username.trim().toLowerCase(),
+                email: email?.trim() || null,
+                password: hashedPassword,
+                isAdmin: false,
+            },
+        });
+
+        const { session, refreshToken } = await createSession(user.id, req);
+        const auth = buildAuthResponse({
+            userId: user.id,
+            sessionId: session.id,
+            refreshToken,
+        });
+
+        res.status(201).json({
+            ...auth,
+            user: getSafeUser(user),
+        });
+    } catch (error) {
+        console.error("Registration error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
 export const me = async (req, res) => {
     try {
         const userId = req.user?.userId;
@@ -173,6 +190,7 @@ export const me = async (req, res) => {
             select: {
                 id: true,
                 name: true,
+                username: true,
                 email: true,
                 isAdmin: true,
                 created_at: true,

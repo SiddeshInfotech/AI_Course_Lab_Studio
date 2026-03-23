@@ -10,7 +10,8 @@ datasource db {
 model User {
   id             Int              @id @default(autoincrement())
   name           String
-  email          String           @unique
+  username       String           @unique
+  email          String?          @unique
   password       String
   isAdmin        Boolean          @default(false)
   created_at     DateTime         @default(now())
@@ -18,6 +19,7 @@ model User {
   sessions       Session[]
   dailyUsage     DailyUsage[]
   courseProgress CourseProgress[]
+  lessonProgress LessonProgress[]
 }
 
 model Session {
@@ -52,17 +54,22 @@ model Course {
 }
 
 model Lesson {
-  id          Int      @id @default(autoincrement())
-  courseId    Int
-  title       String
-  description String?
-  content     String?  // lesson content/material
-  videoUrl    String?
-  orderIndex  Int      // position in course (1, 2, 3...)
-  duration    String?  // e.g. "15 minutes"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  id              Int              @id @default(autoincrement())
+  courseId        Int
+  title           String
+  description     String?
+  content         String?          // lesson content/material
+  videoUrl        String?
+  orderIndex      Int              // position in course (1, 2, 3...)
+  duration        String?          // e.g. "15 minutes"
+  section         String?          // e.g. "Day 1", "Week 1", "Module 1"
+  sectionTitle    String?          // e.g. "Foundations of Neural Networks"
+  type            String           @default("video") // video, quiz, exercise, reading
+  objectives      String?          // JSON array of learning objectives
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessonProgress  LessonProgress[]
 
   @@index([courseId])
   @@unique([courseId, orderIndex])
@@ -70,7 +77,7 @@ model Lesson {
 
 model Tool {
   id          Int      @id @default(autoincrement())
-  name        String
+  name        String   @unique
   description String
   category    String
   websiteUrl  String
@@ -121,6 +128,23 @@ model CourseProgress {
   @@unique([userId, courseId])
   @@index([userId])
   @@index([courseId])
+}
+
+model LessonProgress {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  lessonId    Int
+  courseId    Int
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId, courseId])
+  @@index([lessonId])
 }
 
 model Media {
