@@ -166,7 +166,7 @@ export default function AIDashboardPage() {
         {/* ── Greeting + Stats ── */}
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div className="space-y-1">
-            <p className="text-xs font-semibold text-indigo-500 uppercase tracking-widest">Dashboard</p>
+          
             <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">Welcome back, John</h1>
             <p className="text-slate-500 font-medium">Here&apos;s an overview of your learning progress.</p>
           </div>
