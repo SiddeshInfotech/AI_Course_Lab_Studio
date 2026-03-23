@@ -413,10 +413,7 @@ function LearningPageContent() {
             {currentLesson?.videoUrl ? (
               <div className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden group border border-slate-800 mb-6">
                 {/* React Player */}
-                <div
-                  className="w-full h-full flex items-center justify-center bg-black"
-                  onContextMenu={(e) => e.preventDefault()}
-                >
+                <div className="w-full h-full flex items-center justify-center bg-black">
                   {(() => {
                     const Player = ReactPlayer as any;
                     return (
@@ -436,14 +433,6 @@ function LearningPageContent() {
                         light={false}
                         volume={volume}
                         muted={false}
-                        config={{
-                          file: {
-                            attributes: {
-                              controlsList: "nodownload",
-                              disablePictureInPicture: true,
-                            },
-                          },
-                        }}
                       />
                     );
                   })()}
