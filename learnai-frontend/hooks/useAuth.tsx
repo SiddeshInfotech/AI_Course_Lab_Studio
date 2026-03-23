@@ -68,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch {
             authLib.clear();
             setUser(null);
+            router.push("/");
           }
         } else {
           setUser(null);
