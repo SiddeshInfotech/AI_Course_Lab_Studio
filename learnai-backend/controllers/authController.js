@@ -95,8 +95,13 @@ export const login = async (req, res) => {
             return res.status(400).json({ message: "All fields required" });
         }
 
-        const user = await prisma.user.findUnique({
-            where: { username: loginUsername },
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { username: loginUsername },
+                    { email: loginUsername },
+                ],
+            },
         });
 
         if (!user) {

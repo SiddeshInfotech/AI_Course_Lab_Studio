@@ -239,11 +239,12 @@ export default function AIDashboardPage() {
           >
             <div className="relative w-40 h-10 sm:w-48 sm:h-12 md:w-56 md:h-14">
               <Image
-                src="/logo.png?v=2"
+                src="/logo.png"
                 alt="Logo"
                 fill
+                sizes="(max-width: 640px) 160px, (max-width: 768px) 192px, 224px"
                 className="object-contain"
-                priority
+
               />
             </div>
           </div>

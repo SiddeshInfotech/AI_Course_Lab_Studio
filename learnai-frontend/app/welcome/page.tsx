@@ -56,11 +56,12 @@ export default function WelcomePage() {
         >
           <div className="relative w-64 h-28 sm:w-80 sm:h-36 md:w-[28rem] md:h-48">
             <Image
-              src="/logo.png?v=2"
+              src="/logo.png"
               alt="Learn AI Logo"
               fill
+              sizes="(max-width: 640px) 256px, (max-width: 768px) 320px, 448px"
               className="object-contain"
-              priority
+
             />
           </div>
         </motion.div>

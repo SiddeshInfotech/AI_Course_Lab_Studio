@@ -1,10 +1,16 @@
 import prisma from "../config/db.js";
 
 // Create a media record with file data
-export const createMedia = async (file, uploadedBy, entityType = null, entityId = null) => {
+export const createMedia = async (
+    file,
+    uploadedBy,
+    entityType = null,
+    entityId = null,
+    customFilename = null
+) => {
     return prisma.media.create({
         data: {
-            filename: file.originalname,
+            filename: customFilename || file.originalname,
             mimeType: file.mimetype,
             size: file.size,
             data: file.buffer,

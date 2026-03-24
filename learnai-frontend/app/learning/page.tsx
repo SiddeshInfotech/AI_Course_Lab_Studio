@@ -156,6 +156,11 @@ function LearningPageContent() {
     fetchCurriculum();
   }, [courseId]);
 
+  useEffect(() => {
+    setIsPlaying(false);
+    setWatched(0);
+  }, [currentLesson?.id]);
+
   const toggleDay = (dayId: string) => {
     setExpandedDays((prev) => ({ ...prev, [dayId]: !prev[dayId] }));
   };
@@ -224,11 +229,12 @@ function LearningPageContent() {
         <div className="hidden md:flex items-center gap-3 pr-4 shrink-0">
           <div className="relative w-28 h-7">
             <Image
-              src="/logo.png?v=2"
+              src="/logo.png"
               alt="Logo"
               fill
+              sizes="112px"
               className="object-contain"
-              priority
+
             />
           </div>
         </div>
@@ -423,10 +429,14 @@ function LearningPageContent() {
                         playing={isPlaying}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
-                        onDuration={setDuration}
+                        onReady={() => {
+                          const nextDuration = playerRef.current?.getDuration?.();
+                          if (typeof nextDuration === "number") {
+                            setDuration(nextDuration);
+                          }
+                        }}
                         onProgress={(state: any) => setWatched(state.played)}
-                        onBuffer={() => {}}
-                        onSeek={(time: number) => setWatched(time)}
+                        onEnded={() => setIsPlaying(false)}
                         width="100%"
                         height="100%"
                         controls={false}

@@ -11,26 +11,23 @@ import {
   Search,
   Bell,
   LogOut,
-  MoreHorizontal,
   TrendingUp,
-  UserCheck,
   PlayCircle,
   AlertCircle,
   ChevronDown,
   CheckCircle2,
-  Clock,
   Trash2,
   Edit2,
-  Eye,
   X,
   FileVideo,
   ArrowUpRight,
-  Filter,
   Plus,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { api } from "@/lib/api";
+import { ApiResponseError, api } from "@/lib/api";
 
 type Section = "overview" | "students" | "videos" | "courses" | "settings";
 
@@ -83,6 +80,7 @@ interface UserData {
   email: string;
   isAdmin: boolean;
   created_at: string;
+  approvalStatus?: "accepted" | "rejected";
   _count?: { enrollments: number };
 }
 
@@ -94,7 +92,95 @@ interface CourseData {
   level: string;
   instructor: string;
   duration: string;
+  status?: "Published" | "Draft";
 }
+
+interface VideoMediaData {
+  id: number;
+  filename: string;
+  mimeType: string;
+  size: number;
+  entityType: string | null;
+  entityId: number | null;
+  createdAt: string;
+  url: string;
+}
+
+interface StudentFormState {
+  fullName: string;
+  rollNumber: string;
+  dob: string;
+  email: string;
+}
+
+interface CourseFormState {
+  title: string;
+  description: string;
+  category: string;
+  level: string;
+  instructor: string;
+  duration: string;
+}
+
+const emptyStudentForm: StudentFormState = {
+  fullName: "",
+  rollNumber: "",
+  dob: "",
+  email: "",
+};
+
+const emptyCourseForm: CourseFormState = {
+  title: "",
+  description: "",
+  category: "",
+  level: "",
+  instructor: "",
+  duration: "",
+};
+
+const getInitials = (fullName: string) =>
+  fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "STD";
+
+const normalizeRollNumber = (rollNumber: string) =>
+  rollNumber.trim().toUpperCase().replace(/\s+/g, "");
+
+const generateStudentIdFromProfile = (fullName: string, rollNumber: string) => {
+  const initials = getInitials(fullName);
+  const roll = normalizeRollNumber(rollNumber);
+  const suffix = Math.floor(100 + Math.random() * 900);
+  return `STU-${initials}-${roll || "ROLL"}-${suffix}`;
+};
+
+const formatDobPassword = (dob: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) return "";
+  const [year, month, day] = dob.split("-");
+  return `${day}${month}${year}`;
+};
+
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const getAvatarInitial = (name?: string | null, username?: string | null) => {
+  const fromName = (name || "")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+  if (fromName) return fromName.slice(0, 2);
+  const fromUsername = (username || "").trim().charAt(0).toUpperCase();
+  return fromUsername || "S";
+};
 
 function StatCard({
   label,
@@ -110,7 +196,7 @@ function StatCard({
   trend?: string;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-start justify-between">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 flex items-start justify-between hover:shadow-md hover:-translate-y-0.5 transition-all">
       <div>
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
           {label}
@@ -128,31 +214,9 @@ function StatCard({
           </div>
         )}
       </div>
-      <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
-        <Icon className="w-5 h-5 text-slate-500" />
+      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
+        <Icon className="w-5 h-5 text-slate-600" />
       </div>
-    </div>
-  );
-}
-
-function ProgressBar({ value }: { value: number }) {
-  const color =
-    value >= 80
-      ? "bg-emerald-500"
-      : value >= 50
-      ? "bg-indigo-500"
-      : "bg-amber-400";
-  return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-        <div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${value}%` }}
-        />
-      </div>
-      <span className="text-xs font-semibold text-slate-500 w-7 text-right">
-        {value}%
-      </span>
     </div>
   );
 }
@@ -207,6 +271,13 @@ export default function AdminDashboard() {
   const [courses, setCourses] = useState<CourseData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [settingsFullName, setSettingsFullName] = useState("");
+  const [settingsRollNumber, setSettingsRollNumber] = useState("");
+  const [settingsDob, setSettingsDob] = useState("");
+  const [settingsStudentId, setSettingsStudentId] = useState("");
+  const [copiedField, setCopiedField] = useState<"id" | "password" | null>(
+    null,
+  );
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState("");
@@ -214,7 +285,41 @@ export default function AdminDashboard() {
   const [uploading, setUploading] = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [videos, setVideos] = useState<VideoMediaData[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [studentModalOpen, setStudentModalOpen] = useState(false);
+  const [studentModalMode, setStudentModalMode] = useState<"add" | "edit">(
+    "add",
+  );
+  const [editingStudentId, setEditingStudentId] = useState<number | null>(null);
+  const [studentForm, setStudentForm] = useState<StudentFormState>(
+    emptyStudentForm,
+  );
+  const [studentGeneratedId, setStudentGeneratedId] = useState("");
+
+  const [courseModalOpen, setCourseModalOpen] = useState(false);
+  const [courseModalMode, setCourseModalMode] = useState<"add" | "edit">(
+    "add",
+  );
+  const [editingCourseId, setEditingCourseId] = useState<number | null>(null);
+  const [courseForm, setCourseForm] = useState<CourseFormState>(emptyCourseForm);
+
+  const [deleteDialog, setDeleteDialog] = useState<{
+    type: "student" | "course";
+    id: number;
+    name: string;
+  } | null>(null);
+  const [courseStatus, setCourseStatus] = useState<"Published" | "Draft">(
+    "Published",
+  );
+
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminPasswordForm, setAdminPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -235,6 +340,10 @@ export default function AdminDashboard() {
       const data = await api.admin.dashboard();
       setDashboardData(data);
     } catch (err) {
+      if (err instanceof ApiResponseError && err.status === 401) {
+        await logout();
+        return;
+      }
       setError("Failed to load dashboard data");
       console.error(err);
     } finally {
@@ -246,8 +355,19 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       const data = await api.admin.users();
-      setUsers(data);
+      setUsers(
+        data
+          .filter((u) => !u.isAdmin)
+          .map((u) => ({
+            ...u,
+            approvalStatus: "accepted" as const,
+          })),
+      );
     } catch (err) {
+      if (err instanceof ApiResponseError && err.status === 401) {
+        await logout();
+        return;
+      }
       console.error("Failed to load users:", err);
     } finally {
       setLoading(false);
@@ -258,9 +378,37 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       const data = await api.admin.courses();
-      setCourses(data);
+      setCourses(
+        data.map((c) => ({
+          ...c,
+          status: "Published" as const,
+        })),
+      );
     } catch (err) {
+      if (err instanceof ApiResponseError && err.status === 401) {
+        await logout();
+        return;
+      }
       console.error("Failed to load courses:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadMedia = async () => {
+    setLoading(true);
+    try {
+      const data = await api.admin.listMedia(200, 0);
+      const onlyVideos = data.media.filter((m) =>
+        m.mimeType.startsWith("video/"),
+      );
+      setVideos(onlyVideos);
+    } catch (err) {
+      if (err instanceof ApiResponseError && err.status === 401) {
+        await logout();
+        return;
+      }
+      console.error("Failed to load media:", err);
     } finally {
       setLoading(false);
     }
@@ -270,35 +418,56 @@ export default function AdminDashboard() {
     if (section === "students" && users.length === 0) {
       loadUsers();
     }
+    if (section === "videos") {
+      if (courses.length === 0) loadCourses();
+      loadMedia();
+    }
     if (section === "courses" && courses.length === 0) {
       loadCourses();
     }
   }, [section]);
 
-  const filteredUsers = users.filter(
-    (u) =>
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email?.toLowerCase().includes(search.toLowerCase()) ||
-      u.username.toLowerCase().includes(search.toLowerCase()),
-  );
+  const query = search.toLowerCase();
+  const mediaBaseUrl = (
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api"
+  ).replace(/\/api$/, "");
+  const filteredUsers = users.filter((u) => {
+    const name = (u.name || "").toLowerCase();
+    const email = (u.email || "").toLowerCase();
+    const username = (u.username || "").toLowerCase();
+    return name.includes(query) || email.includes(query) || username.includes(query);
+  });
 
-  const filteredCourses = courses.filter(
-    (c) =>
-      c.title.toLowerCase().includes(search.toLowerCase()) ||
-      c.category.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filteredCourses = courses.filter((c) => {
+    const title = (c.title || "").toLowerCase();
+    const category = (c.category || "").toLowerCase();
+    return title.includes(query) || category.includes(query);
+  });
 
   const handleLogout = async () => {
     await logout();
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!uploadFile || !uploadTitle || !uploadCourse) return;
     setUploading(true);
-    setTimeout(() => {
+
+    try {
+      await api.admin.uploadMedia({
+        file: uploadFile,
+        title: uploadTitle.trim(),
+        entityType: "course",
+        entityId: Number(uploadCourse),
+      });
       setUploading(false);
       setUploadDone(true);
-    }, 2000);
+      await loadMedia();
+    } catch (err) {
+      setUploading(false);
+      window.alert(
+        err instanceof Error ? err.message : "Failed to upload video.",
+      );
+    }
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -306,6 +475,257 @@ export default function AdminDashboard() {
     setDragOver(false);
     const f = e.dataTransfer.files[0];
     if (f && f.type.startsWith("video/")) setUploadFile(f);
+  };
+
+  const openVideo = (video: VideoMediaData) => {
+    const fullUrl = `${mediaBaseUrl}${video.url}`;
+    window.open(fullUrl, "_blank");
+  };
+
+  const deleteVideo = async (video: VideoMediaData) => {
+    const confirmed = window.confirm(`Delete "${video.filename}"?`);
+    if (!confirmed) return;
+    try {
+      await api.admin.deleteMedia(video.id);
+      await loadMedia();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to delete video.");
+    }
+  };
+
+  const openAddStudentModal = () => {
+    setStudentModalMode("add");
+    setEditingStudentId(null);
+    setStudentForm(emptyStudentForm);
+    setStudentGeneratedId("");
+    setStudentModalOpen(true);
+  };
+
+  const openEditStudentModal = (student: UserData) => {
+    setStudentModalMode("edit");
+    setEditingStudentId(student.id);
+    setStudentGeneratedId(student.username);
+    setStudentForm({
+      fullName: student.name,
+      rollNumber: "",
+      dob: "",
+      email: student.email || "",
+    });
+    setStudentModalOpen(true);
+  };
+
+  const handleGenerateStudentId = () => {
+    setStudentGeneratedId(
+      generateStudentIdFromProfile(studentForm.fullName, studentForm.rollNumber),
+    );
+  };
+
+  const saveStudentModal = () => {
+    const fullName = studentForm.fullName.trim();
+    const email = studentForm.email.trim();
+    const password = formatDobPassword(studentForm.dob);
+    const generatedId =
+      studentGeneratedId ||
+      generateStudentIdFromProfile(fullName, studentForm.rollNumber);
+
+    if (!fullName) {
+      window.alert("Full name is required.");
+      return;
+    }
+    if (studentModalMode === "add" && !studentForm.rollNumber.trim()) {
+      window.alert("Roll number is required.");
+      return;
+    }
+    if (studentModalMode === "add" && !studentForm.dob) {
+      window.alert("DOB is required.");
+      return;
+    }
+
+    if (studentModalMode === "add") {
+      const newUser: UserData = {
+        id: Date.now(),
+        name: fullName,
+        username: generatedId,
+        email,
+        isAdmin: false,
+        created_at: new Date().toISOString(),
+      };
+      setUsers((prev) => [newUser, ...prev]);
+      window.alert(
+        `Student created.\nStudent ID: ${generatedId}\nPassword (DOB): ${
+          password || "N/A"
+        }`,
+      );
+    } else if (editingStudentId !== null) {
+      setUsers((prev) =>
+        prev.map((student) =>
+          student.id === editingStudentId
+            ? {
+                ...student,
+                name: fullName,
+                email,
+                username: generatedId,
+              }
+            : student,
+        ),
+      );
+      window.alert("Student updated.");
+    }
+
+    setStudentModalOpen(false);
+  };
+
+  const openAddCourseModal = () => {
+    setCourseModalMode("add");
+    setEditingCourseId(null);
+    setCourseForm(emptyCourseForm);
+    setCourseStatus("Published");
+    setCourseModalOpen(true);
+  };
+
+  const openEditCourseModal = (course: CourseData) => {
+    setCourseModalMode("edit");
+    setEditingCourseId(course.id);
+    setCourseForm({
+      title: course.title,
+      description: course.description,
+      category: course.category,
+      level: course.level,
+      instructor: course.instructor,
+      duration: course.duration,
+    });
+    setCourseStatus(course.status ?? "Published");
+    setCourseModalOpen(true);
+  };
+
+  const saveCourseModal = () => {
+    const payload = {
+      title: courseForm.title.trim(),
+      description: courseForm.description.trim(),
+      category: courseForm.category.trim(),
+      level: courseForm.level.trim(),
+      instructor: courseForm.instructor.trim(),
+      duration: courseForm.duration.trim(),
+      status: courseStatus,
+    };
+    if (
+      !payload.title ||
+      !payload.description ||
+      !payload.category ||
+      !payload.level ||
+      !payload.instructor ||
+      !payload.duration
+    ) {
+      window.alert("Please complete all course fields.");
+      return;
+    }
+
+    if (courseModalMode === "edit" && editingCourseId !== null) {
+      setCourses((prev) =>
+        prev.map((course) =>
+          course.id === editingCourseId ? { ...course, ...payload } : course,
+        ),
+      );
+    } else {
+      setCourses((prev) => [
+        {
+          id: Date.now(),
+          title: payload.title,
+          description: payload.description,
+          category: payload.category,
+          level: payload.level,
+          instructor: payload.instructor,
+          duration: payload.duration,
+          status: payload.status,
+        },
+        ...prev,
+      ]);
+    }
+    setCourseModalOpen(false);
+  };
+
+  const openDeleteDialog = (
+    type: "student" | "course",
+    id: number,
+    name: string,
+  ) => {
+    setDeleteDialog({ type, id, name });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteDialog) return;
+    if (deleteDialog.type === "student") {
+      setUsers((prev) => prev.filter((student) => student.id !== deleteDialog.id));
+    } else {
+      setCourses((prev) => prev.filter((course) => course.id !== deleteDialog.id));
+    }
+    setDeleteDialog(null);
+  };
+
+  const copyText = async (value: string, field: "id" | "password") => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
+    } catch {
+      window.alert("Copy failed. Please copy manually.");
+    }
+  };
+
+  const createStudentFromCredentials = () => {
+    const fullName = settingsFullName.trim();
+    const rollNumber = settingsRollNumber.trim();
+    const password = formatDobPassword(settingsDob);
+    const generatedId =
+      settingsStudentId || generateStudentIdFromProfile(fullName, rollNumber);
+
+    if (!fullName || !rollNumber || !settingsDob) {
+      window.alert("Please fill full name, roll number, and DOB first.");
+      return;
+    }
+
+    setUsers((prev) => [
+      {
+        id: Date.now(),
+        name: fullName,
+        username: generatedId,
+        email: "",
+        isAdmin: false,
+        approvalStatus: "accepted",
+        created_at: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
+    setSettingsStudentId(generatedId);
+    window.alert(
+      `Student added.\nStudent ID: ${generatedId}\nPassword: ${password}`,
+    );
+    setSection("students");
+  };
+
+  const handleAdminResetPassword = () => {
+    const { currentPassword, newPassword, confirmPassword } = adminPasswordForm;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      window.alert("Please fill all password fields.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      window.alert("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      window.alert("New password and confirm password do not match.");
+      return;
+    }
+
+    setAdminPasswordForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setAdminModalOpen(false);
+    window.alert("Password reset request submitted.");
   };
 
   if (isLoading || !isAuthenticated) {
@@ -321,7 +741,7 @@ export default function AdminDashboard() {
     { id: "students", label: "Students", icon: Users },
     { id: "videos", label: "Videos", icon: Video },
     { id: "courses", label: "Courses", icon: BookOpen },
-    { id: "settings", label: "Settings", icon: Settings },
+    { id: "settings", label: "Credentials", icon: Settings },
   ] as const;
 
   const avgProgress =
@@ -332,19 +752,23 @@ export default function AdminDashboard() {
             100,
         )
       : 0;
+  const settingsPassword = formatDobPassword(settingsDob);
+  const adminDisplayName = (user?.name || "Administrator").trim();
+  const adminDisplayEmail = (user?.email || "admin@learnai.com").trim();
+  const adminInitial = adminDisplayName.charAt(0).toUpperCase() || "A";
 
   return (
-    <div className="h-screen flex bg-[#F8FAFC] font-sans text-slate-900 overflow-hidden">
+    <div className="h-screen flex bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 font-sans text-slate-900 overflow-hidden">
       {/* ── Sidebar ── */}
-      <aside className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col h-full">
+      <aside className="w-60 shrink-0 bg-slate-950 text-slate-100 border-r border-slate-800 flex flex-col h-full">
         {/* Logo area */}
-        <div className="h-14 flex items-center px-5 border-b border-slate-100 shrink-0">
+        <div className="h-16 flex items-center px-5 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-slate-900 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/15">
               <Shield className="w-4 h-4 text-white" strokeWidth={2} />
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-900 leading-none">
+              <p className="text-sm font-bold text-white leading-none">
                 Admin
               </p>
               <p className="text-[10px] text-slate-400 leading-none mt-0.5">
@@ -355,7 +779,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5">
+        <nav className="flex-1 px-3 py-4 space-y-1">
           {navItems.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -366,8 +790,8 @@ export default function AdminDashboard() {
               }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 section === id
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-300 hover:bg-white/10 hover:text-white"
               }`}
             >
               <Icon className="w-4 h-4 shrink-0" />
@@ -377,23 +801,26 @@ export default function AdminDashboard() {
         </nav>
 
         {/* Admin info + logout */}
-        <div className="p-4 border-t border-slate-100 shrink-0">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {user?.name?.[0]?.toUpperCase() || "A"}
+        <div className="p-4 border-t border-slate-800 shrink-0">
+          <button
+            onClick={() => setAdminModalOpen(true)}
+            className="w-full flex items-center gap-2.5 mb-3 rounded-lg px-2 py-2 hover:bg-white/10 transition-colors text-left"
+          >
+            <div className="w-8 h-8 rounded-full bg-white/10 border border-white/15 flex items-center justify-center text-white text-xs font-bold shrink-0">
+              {adminInitial}
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-900 truncate">
-                {user?.name || "Administrator"}
+              <p className="text-xs font-semibold text-white truncate">
+                {adminDisplayName}
               </p>
               <p className="text-[10px] text-slate-400 truncate">
-                {user?.email || "admin@system"}
+                {adminDisplayEmail}
               </p>
             </div>
-          </div>
+          </button>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-red-500 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-white/10 hover:text-red-300 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             Sign out
@@ -404,10 +831,12 @@ export default function AdminDashboard() {
       {/* ── Main Area ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 gap-4 shrink-0">
+        <header className="h-16 bg-white/90 backdrop-blur border-b border-slate-200 flex items-center px-6 gap-4 shrink-0">
           <h1 className="text-sm font-bold text-slate-900 capitalize">
             {section === "overview"
               ? "Dashboard Overview"
+              : section === "settings"
+              ? "Student Credentials"
               : section.charAt(0).toUpperCase() + section.slice(1)}
           </h1>
           <div className="flex-1" />
@@ -421,17 +850,17 @@ export default function AdminDashboard() {
                 placeholder={`Search ${section}...`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all w-52"
+                className="pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all w-56"
               />
             </div>
           )}
-          <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
+          <button className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
             <Bell className="w-4 h-4" />
           </button>
         </header>
 
         {/* Scrollable content */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-6 md:p-7">
           {/* ── OVERVIEW ── */}
           {section === "overview" && (
             <div className="space-y-6">
@@ -484,7 +913,7 @@ export default function AdminDashboard() {
               {/* Recent students + top videos */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {/* Recent Students */}
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                     <h2 className="text-sm font-bold text-slate-900">
                       Recent Students
@@ -497,29 +926,29 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                   <div className="divide-y divide-slate-50">
-                    {(dashboardData?.recentUsers?.length ?? 0) > 0 ? (
-                      dashboardData?.recentUsers.map((u) => (
+                    {(dashboardData?.recentUsers?.filter((u) => u.username !== "admin")
+                      ?.length ?? 0) > 0 ? (
+                      dashboardData?.recentUsers
+                        ?.filter((u) => u.username !== "admin")
+                        .map((u) => (
                         <div
                           key={u.id}
                           className="px-5 py-3 flex items-center gap-3"
                         >
                           <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 text-xs font-bold shrink-0">
-                            {u.name
-                              ?.split(" ")
-                              .map((n) => n[0])
-                              .join("") || u.username[0].toUpperCase()}
+                            {getAvatarInitial(u.name, u.username)}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-slate-800 truncate">
-                              {u.name}
+                              {u.name || "Student"}
                             </p>
                             <p className="text-[10px] text-slate-400 truncate">
-                              {u.email || u.username}
+                              {u.email || u.username || "N/A"}
                             </p>
                           </div>
                           <Badge status="Active" />
                         </div>
-                      ))
+                        ))
                     ) : (
                       <div className="px-5 py-8 text-center text-sm text-slate-400">
                         No students yet
@@ -529,7 +958,7 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Course progress overview */}
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                     <h2 className="text-sm font-bold text-slate-900">
                       Recent Enrollments
@@ -568,24 +997,12 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Quick alerts */}
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-start gap-3">
-                <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-800">
-                    Welcome to Learn AI Admin
-                  </p>
-                  <p className="text-xs text-amber-700 mt-0.5">
-                    Start by creating courses and adding lessons to get started.
-                  </p>
-                </div>
-              </div>
             </div>
           )}
 
           {/* ── STUDENTS ── */}
           {section === "students" && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-bold text-slate-900">
@@ -596,28 +1013,33 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors">
-                    <Filter className="w-3.5 h-3.5" /> Filter
+                  <button
+                    onClick={() => {
+                      setSection("settings");
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> New Student
                   </button>
                 </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider px-6 py-3">
+                    <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-6 py-3">
                         Student
                       </th>
-                      <th className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider px-4 py-3">
+                      <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
                         Course
                       </th>
-                      <th className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider px-4 py-3">
+                      <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
                         Progress
                       </th>
-                      <th className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider px-4 py-3">
+                      <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
                         Status
                       </th>
-                      <th className="text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider px-4 py-3">
+                      <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
                         Joined
                       </th>
                       <th className="px-4 py-3" />
@@ -632,17 +1054,14 @@ export default function AdminDashboard() {
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 text-xs font-bold shrink-0">
-                              {u.name
-                                ?.split(" ")
-                                .map((n) => n[0])
-                                .join("") || u.username[0].toUpperCase()}
+                              {getAvatarInitial(u.name, u.username)}
                             </div>
                             <div>
                               <p className="text-xs font-semibold text-slate-800">
-                                {u.name}
+                                {u.name || "Student"}
                               </p>
                               <p className="text-[10px] text-slate-400">
-                                ID: {u.username}
+                                ID: {u.username || "N/A"}
                               </p>
                             </div>
                           </div>
@@ -666,7 +1085,13 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-4 py-3.5">
-                          <Badge status="Active" />
+                          <Badge
+                            status={
+                              (u.approvalStatus ?? "accepted") === "accepted"
+                                ? "Active"
+                                : "Inactive"
+                            }
+                          />
                         </td>
                         <td className="px-4 py-3.5">
                           <span className="text-xs text-slate-400">
@@ -678,25 +1103,25 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2 justify-end">
                             <button
-                              className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-                              title="View"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                              onClick={() => openEditStudentModal(u)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors text-xs font-semibold"
                               title="Edit"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
+                              Edit
                             </button>
                             {u.id !== user?.id && (
                               <button
-                                className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
-                                title="Remove"
+                                onClick={() =>
+                                  openDeleteDialog("student", u.id, u.name)
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors text-xs font-semibold"
+                                title="Delete"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                                Delete
                               </button>
                             )}
                           </div>
@@ -718,11 +1143,13 @@ export default function AdminDashboard() {
           {section === "videos" && (
             <div className="space-y-5">
               {/* Upload Card */}
-              <div className="bg-white rounded-xl border border-slate-200 p-6">
-                <h2 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-slate-500" />
-                  Upload New Video
-                </h2>
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Upload className="w-4 h-4 text-slate-500" />
+                    Upload New Video
+                  </h2>
+                </div>
 
                 {uploadDone ? (
                   <div className="flex flex-col items-center py-8 gap-3">
@@ -830,7 +1257,7 @@ export default function AdminDashboard() {
                           >
                             <option value="">Select a course...</option>
                             {courses.map((c) => (
-                              <option key={c.id} value={c.title}>
+                              <option key={c.id} value={String(c.id)}>
                                 {c.title}
                               </option>
                             ))}
@@ -866,25 +1293,65 @@ export default function AdminDashboard() {
               </div>
 
               {/* Video library table */}
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100">
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                   <h2 className="text-sm font-bold text-slate-900">
                     Video Library
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {dashboardData?.stats.totalLessons || 0} videos
-                  </p>
+                  <p className="text-xs text-slate-500">{videos.length} videos</p>
                 </div>
-                <div className="px-6 py-8 text-center text-sm text-slate-400">
-                  No videos uploaded yet. Upload your first video above.
-                </div>
+                {videos.length === 0 ? (
+                  <div className="px-6 py-8 text-center text-sm text-slate-400">
+                    No videos uploaded yet. Upload your first video above.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {videos.map((video) => (
+                      <div
+                        key={video.id}
+                        className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50/60 transition-colors"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                          <FileVideo className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 truncate">
+                            {video.filename}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {formatFileSize(video.size)} |{" "}
+                            {new Date(video.createdAt).toLocaleDateString("en-US", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openVideo(video)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-xs font-semibold"
+                          >
+                            Open
+                          </button>
+                          <button
+                            onClick={() => deleteVideo(video)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors text-xs font-semibold"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* ── COURSES ── */}
           {section === "courses" && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-bold text-slate-900">
@@ -894,9 +1361,14 @@ export default function AdminDashboard() {
                     {filteredCourses.length} courses
                   </p>
                 </div>
-                <button className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors">
-                  <Plus className="w-3.5 h-3.5" /> New Course
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={openAddCourseModal}
+                    className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> New Course
+                  </button>
+                </div>
               </div>
               <div className="divide-y divide-slate-50">
                 {filteredCourses.length > 0 ? (
@@ -913,19 +1385,26 @@ export default function AdminDashboard() {
                           {c.title}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          {c.instructor} · {c.level} · {c.duration}
+                          {c.instructor} | {c.level} | {c.duration}
                         </p>
                       </div>
-                      <Badge status="Published" />
-                      <div className="flex items-center gap-1">
-                        <button className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                      <Badge status={c.status ?? "Published"} />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openEditCourseModal(c)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors text-xs font-semibold"
+                          title="Edit"
+                        >
                           <Edit2 className="w-3.5 h-3.5" />
+                          Edit
                         </button>
-                        <button className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                        <button
+                          onClick={() => openDeleteDialog("course", c.id, c.title)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors text-xs font-semibold"
+                          title="Delete"
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-                          <MoreHorizontal className="w-3.5 h-3.5" />
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -936,7 +1415,10 @@ export default function AdminDashboard() {
                     <p className="text-sm text-slate-500">
                       No courses created yet
                     </p>
-                    <button className="mt-4 flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold mx-auto transition-colors">
+                    <button
+                      onClick={openAddCourseModal}
+                      className="mt-4 flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold mx-auto transition-colors"
+                    >
                       <Plus className="w-3.5 h-3.5" /> Create First Course
                     </button>
                   </div>
@@ -947,98 +1429,547 @@ export default function AdminDashboard() {
 
           {/* ── SETTINGS ── */}
           {section === "settings" && (
-            <div className="space-y-5 max-w-2xl">
-              {/* Platform settings */}
-              {[
-                {
-                  title: "Platform Information",
-                  fields: [
-                    { label: "Platform Name", value: "Learn AI", type: "text" },
-                    {
-                      label: "Support Email",
-                      value: "support@learnai.com",
-                      type: "email",
-                    },
-                  ],
-                },
-                {
-                  title: "Admin Account",
-                  fields: [
-                    {
-                      label: "Admin Name",
-                      value: user?.name || "",
-                      type: "text",
-                    },
-                    {
-                      label: "Admin Email",
-                      value: user?.email || "",
-                      type: "email",
-                    },
-                    {
-                      label: "Current Password",
-                      value: "",
-                      type: "password",
-                      placeholder: "Enter new password...",
-                    },
-                  ],
-                },
-              ].map((group) => (
-                <div
-                  key={group.title}
-                  className="bg-white rounded-xl border border-slate-200 overflow-hidden"
-                >
-                  <div className="px-6 py-4 border-b border-slate-100">
-                    <h2 className="text-sm font-bold text-slate-900">
-                      {group.title}
-                    </h2>
+            <div className="space-y-5 max-w-3xl">
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Student ID & Password Generator
+                  </h2>
+                </div>
+                <div className="px-6 py-5 space-y-4">
+                  <p className="text-xs text-slate-500">
+                    Generate credentials using full name, roll number, and DOB.
+                    Password format is `DDMMYYYY`.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsFullName}
+                      onChange={(e) => setSettingsFullName(e.target.value)}
+                      placeholder="e.g. Rohan Sharma"
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
                   </div>
-                  <div className="px-6 py-5 space-y-4">
-                    {group.fields.map((f) => (
-                      <div key={f.label}>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                          {f.label}
-                        </label>
-                        <input
-                          type={f.type}
-                          defaultValue={f.value}
-                          placeholder={f.placeholder}
-                          className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
-                        />
-                      </div>
-                    ))}
-                    <div className="pt-2">
-                      <button className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors">
-                        Save Changes
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Roll Number
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsRollNumber}
+                      onChange={(e) => setSettingsRollNumber(e.target.value)}
+                      placeholder="e.g. BTECH24CS045"
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Student ID
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={settingsStudentId}
+                        readOnly
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs bg-slate-50"
+                      />
+                      <button
+                        onClick={() =>
+                          setSettingsStudentId(
+                            generateStudentIdFromProfile(
+                              settingsFullName,
+                              settingsRollNumber,
+                            ),
+                          )
+                        }
+                        className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Generate
+                      </button>
+                      <button
+                        onClick={() => copyText(settingsStudentId, "id")}
+                        disabled={!settingsStudentId}
+                        className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        {copiedField === "id" ? (
+                          <Check className="w-3.5 h-3.5" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     </div>
                   </div>
-                </div>
-              ))}
-
-              {/* Danger zone */}
-              <div className="bg-white rounded-xl border border-red-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-red-50">
-                  <h2 className="text-sm font-bold text-red-600">
-                    Danger Zone
-                  </h2>
-                </div>
-                <div className="px-6 py-5 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-slate-800">
-                      Reset all student data
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      This action cannot be undone.
-                    </p>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Date of Birth
+                    </label>
+                    <input
+                      type="date"
+                      value={settingsDob}
+                      onChange={(e) => setSettingsDob(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
                   </div>
-                  <button className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-lg transition-colors">
-                    Reset
-                  </button>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Password Preview (DOB)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={settingsPassword || "DDMMYYYY"}
+                        readOnly
+                        className="w-full px-3.5 py-2.5 border border-emerald-200 rounded-lg text-xs bg-emerald-50 text-emerald-700 font-semibold"
+                      />
+                      <button
+                        onClick={() => copyText(settingsPassword, "password")}
+                        disabled={!settingsPassword}
+                        className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        {copiedField === "password" ? (
+                          <Check className="w-3.5 h-3.5" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                      Generated Preview
+                    </p>
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      <p className="text-slate-600">
+                        <span className="font-semibold text-slate-800">
+                          Student ID:
+                        </span>{" "}
+                        {settingsStudentId || "-"}
+                      </p>
+                      <p className="text-slate-600">
+                        <span className="font-semibold text-slate-800">
+                          Password:
+                        </span>{" "}
+                        {settingsPassword || "-"}
+                      </p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={createStudentFromCredentials}
+                        className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Create Student
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSettingsFullName("");
+                          setSettingsRollNumber("");
+                          setSettingsDob("");
+                          setSettingsStudentId("");
+                          setCopiedField(null);
+                        }}
+                        className="px-3.5 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </main>
+
+        {studentModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-xl bg-white rounded-2xl border border-slate-200 shadow-2xl">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-base font-bold text-slate-900">
+                  {studentModalMode === "add" ? "Add Student" : "Edit Student"}
+                </h2>
+                <button
+                  onClick={() => setStudentModalOpen(false)}
+                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={studentForm.fullName}
+                    onChange={(e) =>
+                      setStudentForm((prev) => ({
+                        ...prev,
+                        fullName: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Roll Number
+                    </label>
+                    <input
+                      type="text"
+                      value={studentForm.rollNumber}
+                      onChange={(e) =>
+                        setStudentForm((prev) => ({
+                          ...prev,
+                          rollNumber: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. BTECH24CS045"
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      DOB
+                    </label>
+                    <input
+                      type="date"
+                      value={studentForm.dob}
+                      onChange={(e) =>
+                        setStudentForm((prev) => ({
+                          ...prev,
+                          dob: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Email (Optional)
+                  </label>
+                  <input
+                    type="email"
+                    value={studentForm.email}
+                    onChange={(e) =>
+                      setStudentForm((prev) => ({
+                        ...prev,
+                        email: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Generated Student ID
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={studentGeneratedId}
+                      readOnly
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs bg-slate-50"
+                    />
+                    <button
+                      onClick={handleGenerateStudentId}
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                    >
+                      Generate
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Password Preview (DOB)
+                  </label>
+                  <input
+                    type="text"
+                    value={formatDobPassword(studentForm.dob) || "DDMMYYYY"}
+                    readOnly
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs bg-slate-50"
+                  />
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setStudentModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveStudentModal}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  {studentModalMode === "add" ? "Create Student" : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {courseModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-2xl">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-base font-bold text-slate-900">
+                  {courseModalMode === "add" ? "Create New Course" : "Edit Course"}
+                </h2>
+                <button
+                  onClick={() => setCourseModalOpen(false)}
+                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="px-6 py-5 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Title
+                    </label>
+                    <input
+                      type="text"
+                      value={courseForm.title}
+                      onChange={(e) =>
+                        setCourseForm((prev) => ({ ...prev, title: e.target.value }))
+                      }
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Category
+                    </label>
+                    <input
+                      type="text"
+                      value={courseForm.category}
+                      onChange={(e) =>
+                        setCourseForm((prev) => ({
+                          ...prev,
+                          category: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Description
+                  </label>
+                  <textarea
+                    value={courseForm.description}
+                    onChange={(e) =>
+                      setCourseForm((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }))
+                    }
+                    rows={3}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all resize-none"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Level
+                    </label>
+                    <input
+                      type="text"
+                      value={courseForm.level}
+                      onChange={(e) =>
+                        setCourseForm((prev) => ({ ...prev, level: e.target.value }))
+                      }
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Instructor
+                    </label>
+                    <input
+                      type="text"
+                      value={courseForm.instructor}
+                      onChange={(e) =>
+                        setCourseForm((prev) => ({
+                          ...prev,
+                          instructor: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Duration
+                    </label>
+                    <input
+                      type="text"
+                      value={courseForm.duration}
+                      onChange={(e) =>
+                        setCourseForm((prev) => ({
+                          ...prev,
+                          duration: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Course Status
+                  </label>
+                  <select
+                    value={courseStatus}
+                    onChange={(e) =>
+                      setCourseStatus(e.target.value as "Published" | "Draft")
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all bg-white"
+                  >
+                    <option value="Published">Published</option>
+                    <option value="Draft">Draft</option>
+                  </select>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setCourseModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveCourseModal}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {deleteDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl">
+              <div className="px-6 py-5">
+                <h2 className="text-base font-bold text-slate-900">
+                  Confirm Delete
+                </h2>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                  Are you sure you want to delete{" "}
+                  <span className="font-semibold text-slate-700">
+                    {deleteDialog.name}
+                  </span>
+                  ? This action cannot be undone.
+                </p>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setDeleteDialog(null)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {adminModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-base font-bold text-slate-900">
+                  Administrator Settings
+                </h2>
+                <button
+                  onClick={() => setAdminModalOpen(false)}
+                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Current Password
+                  </label>
+                  <input
+                    type="password"
+                    value={adminPasswordForm.currentPassword}
+                    onChange={(e) =>
+                      setAdminPasswordForm((prev) => ({
+                        ...prev,
+                        currentPassword: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    value={adminPasswordForm.newPassword}
+                    onChange={(e) =>
+                      setAdminPasswordForm((prev) => ({
+                        ...prev,
+                        newPassword: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Confirm New Password
+                  </label>
+                  <input
+                    type="password"
+                    value={adminPasswordForm.confirmPassword}
+                    onChange={(e) =>
+                      setAdminPasswordForm((prev) => ({
+                        ...prev,
+                        confirmPassword: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                  />
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setAdminModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdminResetPassword}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Reset Password
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

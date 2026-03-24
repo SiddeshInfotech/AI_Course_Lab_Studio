@@ -6,18 +6,77 @@ interface ApiError {
   [key: string]: unknown;
 }
 
+class ApiResponseError extends Error {
+  status: number;
+  payload?: unknown;
+
+  constructor(message: string, status: number, payload?: unknown) {
+    super(message);
+    this.name = "ApiResponseError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+const getPayloadMessage = (
+  payload: unknown,
+  fallback: string,
+): string => {
+  if (typeof payload === "string" && payload.trim()) return payload.trim();
+  if (payload && typeof payload === "object" && "message" in payload) {
+    const message = (payload as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return fallback;
+};
+
+const clearClientAuthOnUnauthorized = (status: number) => {
+  if (status !== 401 || typeof window === "undefined") return;
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+};
+
 const parseResponse = async <T>(response: Response): Promise<T> => {
   const contentType = response.headers.get("content-type");
+  const fallback = `HTTP error ${response.status}`;
+
   if (contentType?.includes("application/json")) {
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || `HTTP error ${response.status}`);
+    let data: unknown = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
     }
-    return data;
+
+    if (!response.ok) {
+      const message = getPayloadMessage(data, fallback);
+      clearClientAuthOnUnauthorized(response.status);
+      throw new ApiResponseError(message, response.status, data);
+    }
+    return (data ?? ({} as T)) as T;
   }
+
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    text = "";
+  }
+
   if (!response.ok) {
-    throw new Error(`HTTP error ${response.status}`);
+    const message = getPayloadMessage(text, fallback);
+    clearClientAuthOnUnauthorized(response.status);
+    throw new ApiResponseError(message, response.status, text);
   }
+
+  if (text) {
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return {} as T;
+    }
+  }
+
   return {} as T;
 };
 
@@ -25,6 +84,17 @@ const getAuthHeaders = (): HeadersInit => {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+  return headers;
+};
+
+const getAuthOnlyHeaders = (): HeadersInit => {
+  const headers: HeadersInit = {};
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
     if (token) {
@@ -477,7 +547,77 @@ export const api = {
         isAdmin: boolean;
       }>(response);
     },
+
+    uploadMedia: async (data: {
+      file: File;
+      title?: string;
+      entityType?: string;
+      entityId?: number;
+    }) => {
+      const formData = new FormData();
+      formData.append("file", data.file);
+      if (data.title) formData.append("title", data.title);
+      if (data.entityType) formData.append("entityType", data.entityType);
+      if (typeof data.entityId === "number") {
+        formData.append("entityId", String(data.entityId));
+      }
+
+      const response = await fetch(`${API_BASE_URL}/admin/upload`, {
+        method: "POST",
+        headers: getAuthOnlyHeaders(),
+        body: formData,
+      });
+
+      return parseResponse<{
+        id: number;
+        filename: string;
+        mimeType: string;
+        size: number;
+        entityType: string | null;
+        entityId: number | null;
+        createdAt: string;
+        url: string;
+      }>(response);
+    },
+
+    listMedia: async (limit = 50, offset = 0) => {
+      const response = await fetch(
+        `${API_BASE_URL}/admin/media?limit=${limit}&offset=${offset}`,
+        {
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<{
+        media: Array<{
+          id: number;
+          filename: string;
+          mimeType: string;
+          size: number;
+          uploadedBy: number | null;
+          entityType: string | null;
+          entityId: number | null;
+          createdAt: string;
+          url: string;
+        }>;
+        pagination: {
+          total: number;
+          limit: number;
+          offset: number;
+        };
+        storageUsed: number;
+        storageUsedFormatted: string;
+      }>(response);
+    },
+
+    deleteMedia: async (id: number) => {
+      const response = await fetch(`${API_BASE_URL}/admin/media/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      return parseResponse<{ message: string }>(response);
+    },
   },
 };
 
+export { ApiResponseError };
 export type { ApiError };
