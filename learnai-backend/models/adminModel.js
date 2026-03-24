@@ -62,6 +62,7 @@ export const getDashboardStats = async () => {
         prisma.user.findMany({
             take: 5,
             orderBy: { created_at: "desc" },
+            where: { isAdmin: false },
             select: { id: true, name: true, username: true, email: true, created_at: true },
         }),
         prisma.enrollment.findMany({

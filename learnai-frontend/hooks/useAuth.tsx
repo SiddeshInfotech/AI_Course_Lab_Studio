@@ -10,7 +10,7 @@ import {
 } from "react";
 import { auth as authLib, User } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 interface AuthContextType {
   user: User | null;
@@ -28,7 +28,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname();
 
   const refreshUser = useCallback(async () => {
     try {
@@ -108,7 +107,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await api.auth.logout();
+      const token = authLib.getToken();
+      if (token) {
+        await api.auth.logout();
+      }
     } catch {
     } finally {
       authLib.clear();

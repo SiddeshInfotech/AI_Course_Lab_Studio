@@ -99,8 +99,13 @@ export const login = async (req, res) => {
         }
 
         console.log("🔍 Looking up user:", loginUsername);
-        const user = await prisma.user.findUnique({
-            where: { username: loginUsername },
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { username: loginUsername },
+                    { email: loginUsername },
+                ],
+            },
         });
 
         if (!user) {

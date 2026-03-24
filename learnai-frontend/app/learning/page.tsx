@@ -166,12 +166,11 @@ function LearningPageContent() {
 
   // Helper: Check if a lesson is locked
   const isLessonLocked = (
-    lesson: LessonItem,
+    _lesson: LessonItem,
     sectionIndex: number,
   ): boolean => {
     return isDayLocked(sectionIndex);
   };
-
   const toggleDay = (dayId: string) => {
     setExpandedDays((prev) => ({ ...prev, [dayId]: !prev[dayId] }));
   };
@@ -254,8 +253,9 @@ function LearningPageContent() {
               src="/logo.png"
               alt="Logo"
               fill
+              sizes="112px"
               className="object-contain"
-              priority
+
             />
           </div>
         </div>

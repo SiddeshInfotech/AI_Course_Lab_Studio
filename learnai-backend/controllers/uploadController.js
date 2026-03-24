@@ -46,13 +46,25 @@ export const uploadFile = async (req, res) => {
             });
         }
 
-        const { entityType, entityId } = req.body;
+        const { entityType, entityId, title } = req.body;
+        const sanitizedTitle =
+            typeof title === "string" && title.trim().length > 0
+                ? title.trim().replace(/[\\/:*?"<>|]/g, "")
+                : null;
+
+        const extensionFromName = file.originalname.includes(".")
+            ? file.originalname.substring(file.originalname.lastIndexOf("."))
+            : "";
+        const finalFilename = sanitizedTitle
+            ? `${sanitizedTitle}${extensionFromName}`
+            : null;
 
         const media = await createMedia(
             file,
             req.user.userId,
             entityType || null,
-            entityId ? parseInt(entityId) : null
+            entityId ? parseInt(entityId) : null,
+            finalFilename
         );
 
         res.status(201).json({

@@ -59,8 +59,9 @@ export default function WelcomePage() {
               src="/logo.png"
               alt="Learn AI Logo"
               fill
+              sizes="(max-width: 640px) 256px, (max-width: 768px) 320px, 448px"
               className="object-contain"
-              priority
+
             />
           </div>
         </motion.div>

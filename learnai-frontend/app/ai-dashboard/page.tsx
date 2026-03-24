@@ -316,8 +316,9 @@ export default function AIDashboardPage() {
                 src="/logo.png"
                 alt="Logo"
                 fill
+                sizes="(max-width: 640px) 160px, (max-width: 768px) 192px, 224px"
                 className="object-contain"
-                priority
+
               />
             </div>
           </div>
