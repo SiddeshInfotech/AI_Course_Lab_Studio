@@ -79,7 +79,7 @@ export default function LoginPage() {
             <div className="flex flex-col items-center text-center">
               <div className="relative w-48 h-20 sm:w-64 sm:h-28 md:w-80 md:h-32 mb-4 lg:mb-6">
                 <Image
-                  src="/logo.png?v=2"
+                  src="/logo.png"
                   alt="Learn AI Logo"
                   fill
                   className="object-contain"

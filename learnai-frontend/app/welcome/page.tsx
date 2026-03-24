@@ -56,7 +56,7 @@ export default function WelcomePage() {
         >
           <div className="relative w-64 h-28 sm:w-80 sm:h-36 md:w-[28rem] md:h-48">
             <Image
-              src="/logo.png?v=2"
+              src="/logo.png"
               alt="Learn AI Logo"
               fill
               className="object-contain"

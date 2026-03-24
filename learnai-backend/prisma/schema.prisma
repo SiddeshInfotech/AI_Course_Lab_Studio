@@ -20,6 +20,7 @@ model User {
   dailyUsage     DailyUsage[]
   courseProgress CourseProgress[]
   lessonProgress LessonProgress[]
+  toolProgress   ToolProgress[]
 }
 
 model Session {
@@ -42,49 +43,88 @@ model Course {
   title       String
   description String
   category    String
-  level       String           // beginner | intermediate | advanced
+  level       String // beginner | intermediate | advanced
   imageUrl    String?
   instructor  String
-  duration    String           // e.g. "4 hours"
+  duration    String // e.g. "4 hours"
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   enrollments Enrollment[]
   lessons     Lesson[]
   progress    CourseProgress[]
+  toolCourses ToolCourse[]
 }
 
 model Lesson {
-  id              Int              @id @default(autoincrement())
-  courseId        Int
-  title           String
-  description     String?
-  content         String?          // lesson content/material
-  videoUrl        String?
-  orderIndex      Int              // position in course (1, 2, 3...)
-  duration        String?          // e.g. "15 minutes"
-  section         String?          // e.g. "Day 1", "Week 1", "Module 1"
-  sectionTitle    String?          // e.g. "Foundations of Neural Networks"
-  type            String           @default("video") // video, quiz, exercise, reading
-  objectives      String?          // JSON array of learning objectives
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessonProgress  LessonProgress[]
+  id             Int              @id @default(autoincrement())
+  courseId       Int
+  title          String
+  description    String?
+  content        String? // lesson content/material
+  videoUrl       String?
+  orderIndex     Int // position in course (1, 2, 3...)
+  duration       String? // e.g. "15 minutes"
+  section        String? // e.g. "Day 1", "Week 1", "Module 1"
+  sectionTitle   String? // e.g. "Foundations of Neural Networks"
+  type           String           @default("video") // video, quiz, exercise, reading
+  objectives     String? // JSON array of learning objectives
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  course         Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessonProgress LessonProgress[]
 
-  @@index([courseId])
   @@unique([courseId, orderIndex])
+  @@index([courseId])
 }
 
 model Tool {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
   description String
   category    String
   websiteUrl  String
   imageUrl    String?
-  isPremium   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isPremium   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  toolCourses ToolCourse[]
+}
+
+model ToolCourse {
+  id           Int            @id @default(autoincrement())
+  courseId     Int
+  toolId       Int
+  orderIndex   Int // Day 1, Day 2, Day 3... (1, 2, 3...)
+  section      String         @default("Day 1") // e.g. "Day 1", "Day 2"
+  sectionTitle String? // e.g. "Introduction to ChatGPT"
+  description  String? // Tool-specific description for this course
+  demoVideoUrl String? // Demo video specific to this course/tool combo
+  isPremium    Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  course       Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  tool         Tool           @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  toolProgress ToolProgress[]
+
+  @@unique([courseId, toolId])
+  @@index([courseId])
+  @@index([toolId])
+}
+
+model ToolProgress {
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  toolCourseId Int
+  completed    Boolean    @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toolCourse   ToolCourse @relation(fields: [toolCourseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, toolCourseId])
+  @@index([userId])
+  @@index([toolCourseId])
 }
 
 model Enrollment {
@@ -131,16 +171,16 @@ model CourseProgress {
 }
 
 model LessonProgress {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   userId      Int
   lessonId    Int
   courseId    Int
-  completed   Boolean  @default(false)
+  completed   Boolean   @default(false)
   completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lessonId])
   @@index([userId, courseId])
@@ -148,15 +188,15 @@ model LessonProgress {
 }
 
 model Media {
-  id           Int      @id @default(autoincrement())
-  filename     String   // original filename
-  mimeType     String   // e.g. "video/mp4", "image/png"
-  size         Int      // file size in bytes
-  data         Bytes    // binary file data stored in database
-  uploadedBy   Int?     // admin who uploaded
-  entityType   String?  // "course", "lesson" - what this media belongs to
-  entityId     Int?     // ID of the related entity
-  createdAt    DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  filename   String // original filename
+  mimeType   String // e.g. "video/mp4", "image/png"
+  size       Int // file size in bytes
+  data       Bytes // binary file data stored in database
+  uploadedBy Int? // admin who uploaded
+  entityType String? // "course", "lesson" - what this media belongs to
+  entityId   Int? // ID of the related entity
+  createdAt  DateTime @default(now())
 
   @@index([entityType, entityId])
 }

@@ -369,6 +369,61 @@ export const api = {
         };
       }>(response);
     },
+
+    getToolsForCourse: async (courseId: number) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/${courseId}/tools`,
+        {
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<
+        Array<{
+          id: number;
+          courseId: number;
+          toolId: number;
+          orderIndex: number;
+          section: string;
+          sectionTitle: string | null;
+          description: string | null;
+          demoVideoUrl: string | null;
+          isPremium: boolean;
+          tool: {
+            id: number;
+            name: string;
+            description: string;
+            websiteUrl: string;
+            imageUrl: string | null;
+            demoVideoUrl: string | null;
+          };
+          progress: {
+            id: number;
+            completed: boolean;
+            completedAt: string | null;
+          } | null;
+        }>
+      >(response);
+    },
+
+    completeToolLesson: async (toolCourseId: number) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/tools/${toolCourseId}/complete`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<{
+        message: string;
+        progress: {
+          id: number;
+          userId: number;
+          toolCourseId: number;
+          completed: boolean;
+          completedAt: string | null;
+        };
+      }>(response);
+    },
   },
 
   admin: {

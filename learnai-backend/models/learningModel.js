@@ -1,5 +1,49 @@
 import prisma from "../config/db.js";
 
+// Safe JSON parse helper
+const safeJsonParse = (jsonStr, defaultValue = []) => {
+  if (!jsonStr) return defaultValue;
+  try {
+    return typeof jsonStr === "string" ? JSON.parse(jsonStr) : jsonStr;
+  } catch (error) {
+    console.error("❌ JSON parse error:", error);
+    return defaultValue;
+  }
+};
+
+// Convert YouTube URLs to proper embed format for ReactPlayer and iframes
+const convertYouTubeUrl = (url) => {
+  if (!url) return url;
+
+  try {
+    // Extract video ID from different YouTube URL formats
+    let videoId = null;
+
+    // youtu.be/VIDEO_ID format
+    if (url.includes("youtu.be/")) {
+      videoId = url.match(/youtu\.be\/([^?&]+)/)?.[1];
+    }
+    // youtube.com/watch?v=VIDEO_ID format
+    else if (url.includes("youtube.com/watch")) {
+      videoId = url.match(/v=([^&]+)/)?.[1];
+    }
+    // youtube.com/embed/VIDEO_ID format
+    else if (url.includes("youtube.com/embed/")) {
+      videoId = url.match(/embed\/([^?&]+)/)?.[1];
+    }
+
+    // Return embed format URL - most reliable for ReactPlayer
+    if (videoId) {
+      return `https://www.youtube.com/embed/${videoId}?enablejsapi=1&modestbranding=1&rel=0`;
+    }
+  } catch (error) {
+    console.error("❌ Error converting YouTube URL:", error);
+  }
+
+  // Return original URL if conversion fails
+  return url;
+};
+
 /**
  * Get curriculum (lessons grouped by sections) for a specific course
  * @param {number} userId - The ID of the user
@@ -56,8 +100,8 @@ export const getCourseCurriculum = async (userId, courseId) => {
       active: isActive,
       description: lesson.description,
       content: lesson.content,
-      videoUrl: lesson.videoUrl,
-      objectives: lesson.objectives ? JSON.parse(lesson.objectives) : [],
+      videoUrl: convertYouTubeUrl(lesson.videoUrl),
+      objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
   });
@@ -91,8 +135,8 @@ export const getCourseCurriculum = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
-        videoUrl: currentLesson.videoUrl,
-        objectives: currentLesson.objectives ? JSON.parse(currentLesson.objectives) : [],
+        videoUrl: convertYouTubeUrl(currentLesson.videoUrl),
+        objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }
       : null,
@@ -127,12 +171,12 @@ export const getLessonDetails = async (userId, lessonId) => {
     title: lesson.title,
     description: lesson.description,
     content: lesson.content,
-    videoUrl: lesson.videoUrl,
+    videoUrl: convertYouTubeUrl(lesson.videoUrl),
     duration: lesson.duration,
     section: lesson.section,
     sectionTitle: lesson.sectionTitle,
     type: lesson.type,
-    objectives: lesson.objectives ? JSON.parse(lesson.objectives) : [],
+    objectives: safeJsonParse(lesson.objectives, []),
     completed: isCompleted,
     orderIndex: lesson.orderIndex,
     course: {
@@ -254,4 +298,157 @@ export const updateCurrentLesson = async (userId, courseId, lessonOrderIndex) =>
   });
 
   return courseProgress;
+};
+
+/**
+ * Get curriculum with both lessons and tools for a course
+ * @param {number} userId - The ID of the user
+ * @param {number} courseId - The ID of the course
+ * @returns {object} - Curriculum with lessons and tools
+ */
+export const getCourseCurriculumWithTools = async (userId, courseId) => {
+  // Get lessons
+  const lessons = await prisma.lesson.findMany({
+    where: { courseId: parseInt(courseId) },
+    orderBy: { orderIndex: "asc" },
+    include: {
+      lessonProgress: {
+        where: { userId: parseInt(userId) },
+      },
+    },
+  });
+
+  // Get tools
+  const toolCourses = await prisma.toolCourse.findMany({
+    where: { courseId: parseInt(courseId) },
+    include: {
+      tool: true,
+      toolProgress: {
+        where: { userId: parseInt(userId) },
+      },
+    },
+    orderBy: { orderIndex: "asc" },
+  });
+
+  // Get course progress
+  const courseProgress = await prisma.courseProgress.findUnique({
+    where: {
+      userId_courseId: {
+        userId: parseInt(userId),
+        courseId: parseInt(courseId),
+      },
+    },
+  });
+
+  // Build sections map combining lessons and tools by day
+  const sectionsMap = new Map();
+
+  // Add lessons
+  lessons.forEach((lesson) => {
+    const section = lesson.section || "General";
+    const sectionTitle = lesson.sectionTitle || "Course Content";
+
+    if (!sectionsMap.has(section)) {
+      sectionsMap.set(section, {
+        id: section,
+        day: section,
+        title: sectionTitle,
+        items: [],
+      });
+    }
+
+    const isCompleted = lesson.lessonProgress.length > 0 && lesson.lessonProgress[0].completed;
+    const isActive = courseProgress ? lesson.orderIndex === courseProgress.currentLessonId : false;
+
+    sectionsMap.get(section).items.push({
+      id: lesson.id,
+      title: lesson.title,
+      type: "lesson",
+      contentType: lesson.type,
+      duration: lesson.duration,
+      completed: isCompleted,
+      active: isActive,
+      description: lesson.description,
+      content: lesson.content,
+      videoUrl: convertYouTubeUrl(lesson.videoUrl),
+      objectives: safeJsonParse(lesson.objectives, []),
+      orderIndex: lesson.orderIndex,
+    });
+  });
+
+  // Add tools
+  toolCourses.forEach((tc) => {
+    const section = tc.section || "General";
+    const sectionTitle = tc.sectionTitle || "Tools";
+
+    if (!sectionsMap.has(section)) {
+      sectionsMap.set(section, {
+        id: section,
+        day: section,
+        title: sectionTitle,
+        items: [],
+      });
+    }
+
+    const isCompleted = tc.toolProgress.length > 0 && tc.toolProgress[0].completed;
+
+    sectionsMap.get(section).items.push({
+      id: tc.id,
+      toolId: tc.toolId,
+      title: tc.tool.name,
+      type: "tool",
+      contentType: "demo video",
+      duration: null,
+      completed: isCompleted,
+      active: false,
+      description: tc.description || tc.tool.description,
+      demoVideoUrl: tc.demoVideoUrl || tc.tool.demoVideoUrl,
+      tool: {
+        id: tc.tool.id,
+        name: tc.tool.name,
+        description: tc.tool.description,
+        websiteUrl: tc.tool.websiteUrl,
+        imageUrl: tc.tool.imageUrl,
+      },
+      isPremium: tc.isPremium,
+      orderIndex: tc.orderIndex,
+    });
+  });
+
+  // Convert map to array
+  const curriculum = Array.from(sectionsMap.values());
+
+  // Calculate progress (lessons + tools)
+  const totalItems = lessons.length + toolCourses.length;
+  const completedItems =
+    lessons.filter((l) => l.lessonProgress.length > 0 && l.lessonProgress[0].completed).length +
+    toolCourses.filter((tc) => tc.toolProgress.length > 0 && tc.toolProgress[0].completed).length;
+
+  // Find the current active lesson
+  const currentLesson = lessons.find(
+    (l) => courseProgress && l.orderIndex === courseProgress.currentLessonId
+  );
+
+  return {
+    curriculum,
+    progress: {
+      completed: completedItems,
+      total: totalItems,
+      percentage: totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0,
+    },
+    currentLesson: currentLesson
+      ? {
+        id: currentLesson.id,
+        title: currentLesson.title,
+        type: "lesson",
+        contentType: currentLesson.type,
+        duration: currentLesson.duration,
+        description: currentLesson.description,
+        content: currentLesson.content,
+        videoUrl: convertYouTubeUrl(currentLesson.videoUrl),
+        objectives: safeJsonParse(currentLesson.objectives, []),
+        orderIndex: currentLesson.orderIndex,
+      }
+      : null,
+  };
 };

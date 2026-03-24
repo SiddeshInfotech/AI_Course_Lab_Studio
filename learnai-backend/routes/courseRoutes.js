@@ -13,7 +13,12 @@ import {
     editLesson,
     removeLesson,
 } from "../controllers/courseController.js";
+import {
+    createCourseFromTools,
+    getAvailableToolMappings,
+} from "../controllers/courseGenerator.js";
 import authMiddleware from "../middleware/authMiddleware.js";
+import adminMiddleware from "../middleware/adminMiddleware.js";
 import accessLimitMiddleware from "../middleware/accessLimitMiddleware.js";
 
 const router = express.Router();
@@ -27,6 +32,10 @@ router.post("/", authMiddleware, addCourse);
 router.put("/:id", authMiddleware, editCourse);
 router.delete("/:id", authMiddleware, removeCourse);
 router.post("/:id/enroll", authMiddleware, enroll);
+
+// Admin: Course generation from tool mappings
+router.get("/admin/mappings", authMiddleware, adminMiddleware, getAvailableToolMappings);
+router.post("/admin/generate-from-tools", authMiddleware, adminMiddleware, createCourseFromTools);
 
 // Lesson routes
 router.get("/:id/lessons", listLessons);

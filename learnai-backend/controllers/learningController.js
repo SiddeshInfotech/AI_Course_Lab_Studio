@@ -1,5 +1,6 @@
 import {
   getCourseCurriculum,
+  getCourseCurriculumWithTools,
   getLessonDetails,
   markLessonComplete,
   updateCurrentLesson,
@@ -8,17 +9,29 @@ import {
 /**
  * GET /api/learning/:courseId/curriculum
  * Get curriculum for a course with lesson progress
+ * Optional query param: ?includeTools=true to include tools
  */
 export const getCurriculum = async (req, res) => {
   try {
     const { courseId } = req.params;
+    const { includeTools } = req.query;
     const userId = req.user.userId;
 
-    const curriculum = await getCourseCurriculum(userId, courseId);
+    console.log("🎓 Getting curriculum for course:", courseId, "user:", userId, "includeTools:", includeTools);
+
+    let curriculum;
+    if (includeTools === "true") {
+      curriculum = await getCourseCurriculumWithTools(userId, courseId);
+    } else {
+      curriculum = await getCourseCurriculum(userId, courseId);
+    }
+
+    console.log("✅ Curriculum fetched, lessons:", curriculum.curriculum?.length || 0);
     res.json(curriculum);
   } catch (error) {
-    console.error("Get curriculum error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("❌ Get curriculum error:", error.message);
+    console.error("❌ Full error:", error);
+    res.status(500).json({ message: error.message || "Internal server error" });
   }
 };
 

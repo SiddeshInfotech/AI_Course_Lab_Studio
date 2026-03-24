@@ -5,25 +5,34 @@ import {
   completeLesson,
   setCurrentLesson,
 } from "../controllers/learningController.js";
+import {
+  getCourseTools,
+  linkToolToCourse,
+  completeToolLesson,
+  getUserCourseToolProgress,
+} from "../controllers/toolController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
+import adminMiddleware from "../middleware/adminMiddleware.js";
 
 const router = express.Router();
 
 // All learning routes require authentication
 router.use(authMiddleware);
 
-// More specific routes first (ones with literal path segments)
-// Get details of a specific lesson
+// Lesson routes
 router.get("/lesson/:lessonId", getLesson);
-
-// Mark a lesson as complete
 router.post("/lesson/:lessonId/complete", completeLesson);
-
-// Generic routes with parameters after
-// Get curriculum for a course
 router.get("/:courseId/curriculum", getCurriculum);
-
-// Update current lesson
 router.put("/:courseId/current-lesson", setCurrentLesson);
+
+// Tool course routes - get tools for a course with user progress
+router.get("/:courseId/tools", getCourseTools);
+
+// Tool progress tracking
+router.post("/tools/:toolCourseId/complete", completeToolLesson);
+router.get("/:courseId/tools/progress", getUserCourseToolProgress);
+
+// Admin: Link tools to course
+router.post("/:courseId/tools/link", adminMiddleware, linkToolToCourse);
 
 export default router;
