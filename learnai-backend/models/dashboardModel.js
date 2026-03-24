@@ -41,7 +41,70 @@ export const getUserStreak = async (userId) => {
         }
     }
 
-    return streak;
+    if (streak > 0) {
+        return streak;
+    }
+
+    // Fallback: derive streak from real learning activity when heartbeat data is unavailable.
+    let lessonCompletions = [];
+    let toolCompletions = [];
+    let courseTouches = [];
+
+    try {
+        [lessonCompletions, toolCompletions, courseTouches] = await Promise.all([
+            prisma.lessonProgress.findMany({
+                where: { userId, completed: true, completedAt: { not: null } },
+                select: { completedAt: true },
+                orderBy: { completedAt: "desc" },
+            }),
+            prisma.toolProgress.findMany({
+                where: { userId, completed: true, completedAt: { not: null } },
+                select: { completedAt: true },
+                orderBy: { completedAt: "desc" },
+            }),
+            prisma.courseProgress.findMany({
+                where: { userId },
+                select: { lastAccessedAt: true },
+                orderBy: { lastAccessedAt: "desc" },
+            }),
+        ]);
+    } catch (error) {
+        // Keep dashboard available even when optional progress tables are not ready.
+        console.error("Streak fallback activity query failed:", error.message);
+        return 0;
+    }
+
+    const activityDays = new Set();
+    const toDayKey = (value) => {
+        if (!value) return null;
+        const date = new Date(value);
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
+    };
+
+    lessonCompletions.forEach((item) => {
+        const key = toDayKey(item.completedAt);
+        if (key) activityDays.add(key);
+    });
+    toolCompletions.forEach((item) => {
+        const key = toDayKey(item.completedAt);
+        if (key) activityDays.add(key);
+    });
+    courseTouches.forEach((item) => {
+        const key = toDayKey(item.lastAccessedAt);
+        if (key) activityDays.add(key);
+    });
+
+    let fallbackStreak = 0;
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+
+    while (activityDays.has(cursor.getTime())) {
+        fallbackStreak++;
+        cursor.setDate(cursor.getDate() - 1);
+    }
+
+    return fallbackStreak;
 };
 
 // Get count of completed courses
@@ -58,11 +121,138 @@ export const getEnrolledCoursesCount = (userId) =>
 
 // Calculate accuracy (completion rate percentage)
 export const calculateAccuracy = async (userId) => {
-    const completed = await getCompletedCoursesCount(userId);
-    const enrolled = await getEnrolledCoursesCount(userId);
+    try {
+        const enrollments = await prisma.enrollment.findMany({
+            where: { userId },
+            select: {
+                courseId: true,
+                course: {
+                    select: {
+                        _count: {
+                            select: { lessons: true },
+                        },
+                    },
+                },
+            },
+        });
 
-    if (enrolled === 0) return 0;
-    return Math.round((completed / enrolled) * 100);
+        if (enrollments.length === 0) return 0;
+
+        const enrolledCourseIds = enrollments.map((enrollment) => enrollment.courseId);
+        const lessonTotalsByCourse = new Map(
+            enrollments.map((enrollment) => [enrollment.courseId, enrollment.course._count.lessons])
+        );
+
+        const completedLessonsByCourse = await prisma.lessonProgress.groupBy({
+            by: ["courseId"],
+            where: {
+                userId,
+                completed: true,
+                courseId: { in: enrolledCourseIds },
+            },
+            _count: {
+                _all: true,
+            },
+        });
+
+        const completedMap = new Map(
+            completedLessonsByCourse.map((item) => [item.courseId, item._count._all])
+        );
+
+        let totalLessons = 0;
+        let completedLessons = 0;
+
+        enrolledCourseIds.forEach((courseId) => {
+            const total = lessonTotalsByCourse.get(courseId) || 0;
+            const completed = completedMap.get(courseId) || 0;
+            totalLessons += total;
+            completedLessons += Math.min(completed, total);
+        });
+
+        if (totalLessons === 0) return 0;
+        return Math.round((completedLessons / totalLessons) * 100);
+    } catch (error) {
+        console.error("Accuracy calculation fallback:", error.message);
+        const completed = await getCompletedCoursesCount(userId);
+        const enrolled = await getEnrolledCoursesCount(userId);
+        if (enrolled === 0) return 0;
+        return Math.round((completed / enrolled) * 100);
+    }
+};
+
+const getModulesCompletedCount = async (userId) => {
+    try {
+        const enrollments = await prisma.enrollment.findMany({
+            where: { userId },
+            select: {
+                courseId: true,
+                course: {
+                    select: {
+                        _count: {
+                            select: { lessons: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (enrollments.length === 0) return 0;
+
+        const enrolledCourseIds = enrollments.map((enrollment) => enrollment.courseId);
+        const lessonTotalsByCourse = new Map(
+            enrollments.map((enrollment) => [enrollment.courseId, enrollment.course._count.lessons])
+        );
+
+        const [completedLessonsByCourse, courseProgressRecords] = await Promise.all([
+            prisma.lessonProgress.groupBy({
+                by: ["courseId"],
+                where: {
+                    userId,
+                    completed: true,
+                    courseId: { in: enrolledCourseIds },
+                },
+                _count: {
+                    _all: true,
+                },
+            }),
+            prisma.courseProgress.findMany({
+                where: {
+                    userId,
+                    courseId: { in: enrolledCourseIds },
+                },
+                select: {
+                    courseId: true,
+                    completed: true,
+                },
+            }),
+        ]);
+
+        const completedMap = new Map(
+            completedLessonsByCourse.map((item) => [item.courseId, item._count._all])
+        );
+        const courseCompletedMap = new Map(
+            courseProgressRecords.map((item) => [item.courseId, item.completed])
+        );
+
+        let completedModules = 0;
+
+        enrolledCourseIds.forEach((courseId) => {
+            const totalLessons = lessonTotalsByCourse.get(courseId) || 0;
+            const completedLessons = completedMap.get(courseId) || 0;
+            const completedFromProgress = courseCompletedMap.get(courseId) || false;
+            const completedFromLessons =
+                totalLessons > 0 && completedLessons >= totalLessons;
+
+            if (completedFromProgress || completedFromLessons) {
+                completedModules++;
+            }
+        });
+
+        return completedModules;
+    } catch (error) {
+        console.error("Modules completed fallback:", error.message);
+        return getCompletedCoursesCount(userId);
+    }
 };
 
 // Get all enrolled courses with their progress
@@ -137,7 +327,7 @@ export const getDashboardData = async (userId) => {
         await Promise.all([
             getUserProfile(userId),
             getUserStreak(userId),
-            getCompletedCoursesCount(userId),
+            getModulesCompletedCount(userId),
             getEnrolledCoursesCount(userId),
             calculateAccuracy(userId),
             getEnrolledCoursesWithProgress(userId),

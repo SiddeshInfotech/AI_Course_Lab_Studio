@@ -15,7 +15,6 @@ import {
   CheckCircle,
   Target,
   BookOpen,
-  ExternalLink,
   Lock,
 } from "lucide-react";
 import Image from "next/image";
@@ -116,6 +115,8 @@ export default function AIDashboardPage() {
     null,
   );
   const [isLoadingCourse, setIsLoadingCourse] = useState(true);
+  const [completedLessonOrderIndexes, setCompletedLessonOrderIndexes] =
+    useState<number[]>([]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -148,18 +149,29 @@ export default function AIDashboardPage() {
 
       try {
         setIsLoadingCourse(true);
+        setCompletedLessonOrderIndexes([]);
         const enrolledCourses = await api.courses.getEnrolled();
         if (enrolledCourses.length > 0) {
           const mainCourse = enrolledCourses[0];
           const curriculumData = await api.learning.getCurriculum(
             mainCourse.id,
           );
+          const completedOrders = curriculumData.curriculum
+            .flatMap((section) => section.items)
+            .filter((item) => item.completed)
+            .map((item) => item.orderIndex);
+          setCompletedLessonOrderIndexes(completedOrders);
+
           if (curriculumData.currentLesson) {
             setCourseProgress({
               courseId: mainCourse.id,
               currentLessonOrderIndex: curriculumData.currentLesson.orderIndex,
             });
+          } else {
+            setCourseProgress(null);
           }
+        } else {
+          setCourseProgress(null);
         }
       } catch (error) {
         console.error("Failed to fetch course progress:", error);
@@ -255,8 +267,6 @@ export default function AIDashboardPage() {
       ? toolMappings[`${activeInput}-${activeOutput}`] || []
       : [];
 
-  const masteredCount = currentToolNames.filter((_, i) => i % 3 === 0).length;
-
   const displayName = user?.name?.split(" ")[0] || "there";
 
   // Helper: Get the absolute position of a tool across all categories
@@ -292,6 +302,16 @@ export default function AIDashboardPage() {
     // A tool is locked if its orderIndex is greater than current lesson orderIndex
     return absolutePosition + 1 > courseProgress.currentLessonOrderIndex;
   };
+
+  const isToolMastered = (toolName: string): boolean => {
+    const absolutePosition = getToolAbsolutePosition(toolName);
+    if (absolutePosition < 0) return false;
+    return completedLessonOrderIndexes.includes(absolutePosition + 1);
+  };
+
+  const masteredCount = currentToolNames.filter((name) =>
+    isToolMastered(name),
+  ).length;
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -545,8 +565,8 @@ export default function AIDashboardPage() {
               </div>
             ) : currentToolNames.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-                {currentToolNames.map((name, index) => {
-                  const isMastered = index % 3 === 0;
+                {currentToolNames.map((name) => {
+                  const isMastered = isToolMastered(name);
                   const toolLocked = isToolLocked(name);
                   const logoUrl = TOOL_LOGOS[name];
                   return (
@@ -614,13 +634,6 @@ export default function AIDashboardPage() {
                         <span className="mt-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
                           Mastered
                         </span>
-                      )}
-                      {!toolLocked && (
-                        <div className="absolute inset-0 flex items-end justify-center pb-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-                          <span className="text-[10px] font-semibold text-indigo-500 flex items-center gap-1">
-                            Open Tool <ExternalLink className="w-3 h-3" />
-                          </span>
-                        </div>
                       )}
                     </div>
                   );
