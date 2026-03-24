@@ -1,6 +1,7 @@
+/* eslint-disable react/no-unknown-property */
 "use client";
 
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense } from "react";
 import {
   ArrowLeft,
   Play,
@@ -10,10 +11,6 @@ import {
   Target,
   ChevronRight,
   Clock,
-  Pause,
-  Volume2,
-  Maximize,
-  Settings,
   BookOpen,
   Code,
   ChevronDown,
@@ -22,14 +19,14 @@ import {
   ExternalLink,
   Menu,
   Sparkles,
-  Volume1,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { motion, AnimatePresence } from "motion/react";
-import ReactPlayer from "react-player";
 import { useAuth } from "@/hooks/useAuth";
+import { useVideoProtection } from "@/hooks/useVideoProtection";
 import { api } from "@/lib/api";
 
 interface LessonItem {
@@ -69,17 +66,9 @@ function LearningPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading } = useAuth();
-  const playerRef = useRef<any>(null);
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({
-    day1: true,
-  });
-  const [duration, setDuration] = useState(0);
-  const [watched, setWatched] = useState(0);
-  const [volume, setVolume] = useState(0.8);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Enable video protection on this page
+  useVideoProtection();
 
   const [courseId, setCourseId] = useState<number | null>(null);
   const [curriculum, setCurriculum] = useState<CurriculumSection[]>([]);
@@ -93,6 +82,10 @@ function LearningPageContent() {
   });
   const [isLoadingCurriculum, setIsLoadingCurriculum] = useState(true);
   const [courseTitle, setCourseTitle] = useState("Advanced Neural Networks");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({
+    day1: true,
+  });
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -156,17 +149,44 @@ function LearningPageContent() {
     fetchCurriculum();
   }, [courseId]);
 
-  useEffect(() => {
-    setIsPlaying(false);
-    setWatched(0);
-  }, [currentLesson?.id]);
+  // Helper: Find the current day index (the day containing the active lesson)
+  const getCurrentDayIndex = (): number => {
+    if (!currentLesson) return 0;
+    const dayIndex = curriculum.findIndex((section) =>
+      section.items.some((item) => item.id === currentLesson.id),
+    );
+    return dayIndex >= 0 ? dayIndex : 0;
+  };
 
+  // Helper: Check if a day is locked (all days after current day are locked)
+  const isDayLocked = (dayIndex: number): boolean => {
+    const currentDayIndex = getCurrentDayIndex();
+    return dayIndex > currentDayIndex;
+  };
+
+  // Helper: Check if a lesson is locked
+  const isLessonLocked = (
+    _lesson: LessonItem,
+    sectionIndex: number,
+  ): boolean => {
+    return isDayLocked(sectionIndex);
+  };
   const toggleDay = (dayId: string) => {
     setExpandedDays((prev) => ({ ...prev, [dayId]: !prev[dayId] }));
   };
 
   const handleLessonClick = async (lesson: LessonItem) => {
     if (!courseId) return;
+
+    // Find which section/day this lesson belongs to
+    const sectionIndex = curriculum.findIndex((section) =>
+      section.items.some((item) => item.id === lesson.id),
+    );
+
+    // Prevent clicking on locked lessons
+    if (isLessonLocked(lesson, sectionIndex)) {
+      return;
+    }
 
     try {
       // Update current lesson in course progress
@@ -219,6 +239,7 @@ function LearningPageContent() {
         <button
           onClick={() => router.push("/ai-dashboard")}
           className="p-2 hover:bg-slate-100 rounded-lg transition-colors group shrink-0"
+          title="Go back to dashboard"
         >
           <ArrowLeft className="w-4 h-4 text-slate-500 group-hover:text-slate-800 transition-colors" />
         </button>
@@ -293,96 +314,141 @@ function LearningPageContent() {
 
                 {/* Curriculum list */}
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                  {curriculum.map((section) => (
-                    <div
-                      key={section.id}
-                      className="rounded-xl border border-slate-100 overflow-hidden bg-white"
-                    >
-                      <button
-                        onClick={() => toggleDay(section.id)}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+                  {curriculum.map((section, sectionIndex) => {
+                    const dayLocked = isDayLocked(sectionIndex);
+                    return (
+                      <div
+                        key={section.id}
+                        className={`rounded-xl border overflow-hidden transition-all ${
+                          dayLocked
+                            ? "border-slate-200 bg-slate-50"
+                            : "border-slate-100 bg-white"
+                        }`}
                       >
-                        <div className="flex flex-col items-start text-left">
-                          <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">
-                            {section.day}
-                          </span>
-                          <span className="text-xs font-semibold text-slate-800 mt-0.5">
-                            {section.title}
-                          </span>
-                        </div>
-                        {expandedDays[section.id] ? (
-                          <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-                        )}
-                      </button>
+                        <button
+                          onClick={() => !dayLocked && toggleDay(section.id)}
+                          disabled={dayLocked}
+                          className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${
+                            dayLocked
+                              ? "cursor-not-allowed opacity-60"
+                              : "hover:bg-slate-50 cursor-pointer"
+                          }`}
+                          title={
+                            dayLocked ? "Complete previous days to unlock" : ""
+                          }
+                        >
+                          <div className="flex flex-col items-start text-left">
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wider ${
+                                dayLocked ? "text-slate-400" : "text-indigo-500"
+                              }`}
+                            >
+                              {section.day}
+                            </span>
+                            <span
+                              className={`text-xs font-semibold mt-0.5 ${
+                                dayLocked ? "text-slate-500" : "text-slate-800"
+                              }`}
+                            >
+                              {section.title}
+                            </span>
+                          </div>
+                          {dayLocked ? (
+                            <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                          ) : expandedDays[section.id] ? (
+                            <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                          )}
+                        </button>
 
-                      <AnimatePresence>
-                        {expandedDays[section.id] && (
-                          <motion.div
-                            initial={{ height: 0 }}
-                            animate={{ height: "auto" }}
-                            exit={{ height: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="px-2 pb-2 space-y-0.5 border-t border-slate-100">
-                              {section.items.map((item) => (
-                                <div
-                                  key={item.id}
-                                  onClick={() => handleLessonClick(item)}
-                                  className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
-                                    item.active
-                                      ? "bg-indigo-50 border border-indigo-100"
-                                      : "hover:bg-slate-50 border border-transparent"
-                                  }`}
-                                >
-                                  <div className="mt-0.5 shrink-0">
-                                    {item.completed ? (
-                                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                    ) : item.active ? (
-                                      <Play
-                                        className="w-4 h-4 text-indigo-600"
-                                        fill="currentColor"
-                                      />
-                                    ) : item.type === "reading" ? (
-                                      <FileText className="w-4 h-4 text-slate-400" />
-                                    ) : item.type === "exercise" ? (
-                                      <Code className="w-4 h-4 text-slate-400" />
-                                    ) : item.type === "quiz" ? (
-                                      <HelpCircle className="w-4 h-4 text-orange-400" />
-                                    ) : (
-                                      <Video className="w-4 h-4 text-slate-400" />
-                                    )}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <span
-                                      className={`text-xs font-semibold block leading-tight ${
+                        <AnimatePresence>
+                          {expandedDays[section.id] && !dayLocked && (
+                            <motion.div
+                              initial={{ height: 0 }}
+                              animate={{ height: "auto" }}
+                              exit={{ height: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="px-2 pb-2 space-y-0.5 border-t border-slate-100">
+                                {section.items.map((item) => {
+                                  const itemLocked = isLessonLocked(
+                                    item,
+                                    sectionIndex,
+                                  );
+                                  return (
+                                    <div
+                                      key={item.id}
+                                      onClick={() =>
+                                        !itemLocked && handleLessonClick(item)
+                                      }
+                                      className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg transition-all ${
+                                        itemLocked
+                                          ? "cursor-not-allowed opacity-50"
+                                          : "cursor-pointer"
+                                      } ${
                                         item.active
-                                          ? "text-indigo-900"
-                                          : "text-slate-700"
+                                          ? "bg-indigo-50 border border-indigo-100"
+                                          : itemLocked
+                                          ? "border border-transparent"
+                                          : "hover:bg-slate-50 border border-transparent"
                                       }`}
                                     >
-                                      {item.title}
-                                    </span>
-                                    <span
-                                      className={`text-[10px] font-medium flex items-center gap-1 mt-1 ${
-                                        item.active
-                                          ? "text-indigo-500"
-                                          : "text-slate-400"
-                                      }`}
-                                    >
-                                      <Clock className="w-3 h-3" />{" "}
-                                      {item.duration}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  ))}
+                                      <div className="mt-0.5 shrink-0">
+                                        {itemLocked ? (
+                                          <Lock className="w-4 h-4 text-slate-300" />
+                                        ) : item.completed ? (
+                                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                        ) : item.active ? (
+                                          <Play
+                                            className="w-4 h-4 text-indigo-600"
+                                            fill="currentColor"
+                                          />
+                                        ) : item.type === "reading" ? (
+                                          <FileText className="w-4 h-4 text-slate-400" />
+                                        ) : item.type === "exercise" ? (
+                                          <Code className="w-4 h-4 text-slate-400" />
+                                        ) : item.type === "quiz" ? (
+                                          <HelpCircle className="w-4 h-4 text-orange-400" />
+                                        ) : (
+                                          <Video className="w-4 h-4 text-slate-400" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <span
+                                          className={`text-xs font-semibold block leading-tight ${
+                                            itemLocked
+                                              ? "text-slate-400"
+                                              : item.active
+                                              ? "text-indigo-900"
+                                              : "text-slate-700"
+                                          }`}
+                                        >
+                                          {item.title}
+                                        </span>
+                                        <span
+                                          className={`text-[10px] font-medium flex items-center gap-1 mt-1 ${
+                                            itemLocked
+                                              ? "text-slate-300"
+                                              : item.active
+                                              ? "text-indigo-500"
+                                              : "text-slate-400"
+                                          }`}
+                                        >
+                                          <Clock className="w-3 h-3" />{" "}
+                                          {item.duration}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* AI Tool button — minimalist professional */}
@@ -415,135 +481,74 @@ function LearningPageContent() {
         {/* ── RIGHT: Main content (video + simplified below) ── */}
         <main className="flex-1 overflow-y-auto bg-[#F8FAFC]">
           <div className="max-w-4xl mx-auto p-6 md:p-8">
-            {/* Video Player Container */}
+            {/* Video Player Container - Protected */}
             {currentLesson?.videoUrl ? (
-              <div className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden group border border-slate-800 mb-6">
-                {/* React Player */}
+              <div
+                className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden border border-slate-800 mb-6"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  return false;
+                }}
+              >
+                {/* Protected YouTube iframe embed */}
                 <div className="w-full h-full flex items-center justify-center bg-black">
                   {(() => {
-                    const Player = ReactPlayer as any;
+                    // Extract video ID from YouTube URL
+                    const getYouTubeId = (url: string) => {
+                      let videoId = "";
+                      if (url.includes("youtube.com/embed/")) {
+                        videoId = url.match(/embed\/([^?&]+)/)?.[1] || "";
+                      } else if (url.includes("youtube.com/watch")) {
+                        videoId = url.match(/v=([^&]+)/)?.[1] || "";
+                      } else if (url.includes("youtu.be/")) {
+                        videoId = url.match(/youtu\.be\/([^?&]+)/)?.[1] || "";
+                      }
+                      return videoId;
+                    };
+
+                    const videoId = getYouTubeId(currentLesson.videoUrl);
+
+                    if (!videoId) {
+                      return (
+                        <div className="text-center">
+                          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                          <p className="text-red-400 text-sm">
+                            Invalid video URL
+                          </p>
+                        </div>
+                      );
+                    }
+
                     return (
-                      <Player
-                        ref={playerRef}
-                        url={currentLesson.videoUrl}
-                        playing={isPlaying}
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
-                        onReady={() => {
-                          const nextDuration = playerRef.current?.getDuration?.();
-                          if (typeof nextDuration === "number") {
-                            setDuration(nextDuration);
-                          }
-                        }}
-                        onProgress={(state: any) => setWatched(state.played)}
-                        onEnded={() => setIsPlaying(false)}
+                      <iframe
                         width="100%"
                         height="100%"
-                        controls={false}
-                        light={false}
-                        volume={volume}
-                        muted={false}
+                        src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&modestbranding=1&rel=0&fs=1`}
+                        title={currentLesson.title}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="w-full h-full"
                       />
                     );
                   })()}
                 </div>
 
-                {/* Custom Controls Overlay */}
-                <div className="absolute inset-0 flex flex-col justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-t from-black/80 to-transparent">
-                  {/* Top Controls */}
-                  <div className="p-4 flex items-center justify-end gap-3">
-                    <button
-                      onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
-                      className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all"
-                      title={volume === 0 ? "Unmute" : "Mute"}
-                    >
-                      {volume === 0 ? (
-                        <Volume2 className="w-4 h-4 line-through" />
-                      ) : (
-                        <Volume1 className="w-4 h-4" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setIsFullscreen(!isFullscreen)}
-                      className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all"
-                      title="Fullscreen"
-                    >
-                      <Maximize className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="px-4 py-2 space-y-2">
-                    {/* Timeline scrubber */}
-                    <div
-                      className="w-full h-1 bg-slate-600/50 rounded-full overflow-hidden cursor-pointer hover:h-1.5 transition-all group/scrub"
-                      onClick={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const percent = (e.clientX - rect.left) / rect.width;
-                        playerRef.current?.seekTo(percent, "fraction");
-                      }}
-                    >
-                      <div
-                        className="h-full bg-indigo-500 rounded-full"
-                        style={{ width: `${watched * 100}%` }}
-                      />
-                    </div>
-
-                    {/* Time display and controls */}
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        className="p-2 rounded-lg bg-white/10 hover:bg-indigo-600 text-white transition-all active:scale-95"
-                      >
-                        {isPlaying ? (
-                          <Pause className="w-4 h-4" />
-                        ) : (
-                          <Play className="w-4 h-4" fill="currentColor" />
-                        )}
-                      </button>
-
-                      <span className="text-xs text-slate-300 font-medium whitespace-nowrap">
-                        {Math.floor(watched * duration)}:{String(Math.floor((watched * duration) % 60)).padStart(2, "0")} /{" "}
-                        {Math.floor(duration)}:{String(Math.floor(duration % 60)).padStart(2, "0")}
-                      </span>
-
-                      <div className="flex-1 flex items-center gap-2">
-                        <Volume1 className="w-3 h-3 text-slate-300" />
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          value={volume}
-                          onChange={(e) => setVolume(parseFloat(e.target.value))}
-                          className="flex-1 h-1 bg-slate-600/50 rounded-full cursor-pointer accent-indigo-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Center Play Button (when not playing) */}
-                {!isPlaying && (
-                  <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsPlaying(true)}
-                    className="absolute inset-0 flex items-center justify-center z-10"
-                  >
-                    <div className="w-16 h-16 bg-white/10 hover:bg-indigo-600 rounded-full flex items-center justify-center backdrop-blur-md transition-all border border-white/20 shadow-2xl">
-                      <Play
-                        className="w-7 h-7 text-white ml-1"
-                        fill="currentColor"
-                      />
-                    </div>
-                  </motion.button>
-                )}
+                {/* Screenshot Prevention Canvas */}
+                <canvas
+                  id="screenshotCanvas"
+                  className="hidden"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    return false;
+                  }}
+                />
               </div>
             ) : (
               <div className="w-full aspect-video bg-slate-200 rounded-2xl shadow-xl border border-slate-300 mb-6 flex flex-col items-center justify-center gap-3">
                 <AlertCircle className="w-12 h-12 text-slate-400" />
-                <p className="text-slate-600 font-medium">No video available for this lesson</p>
+                <p className="text-slate-600 font-medium">
+                  No video available for this lesson
+                </p>
               </div>
             )}
 

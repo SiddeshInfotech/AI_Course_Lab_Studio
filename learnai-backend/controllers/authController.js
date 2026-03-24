@@ -83,6 +83,8 @@ const getSafeUser = (user) => ({
 export const login = async (req, res) => {
     try {
         const { username, email, password } = req.body;
+        console.log("🔐 Login attempt with:", { username, email, hasPassword: !!password });
+
         const loginUsername =
             typeof username === "string" && username.trim()
                 ? username.trim()
@@ -92,9 +94,11 @@ export const login = async (req, res) => {
 
         // validation
         if (!loginUsername || !password) {
+            console.log("❌ Missing credentials");
             return res.status(400).json({ message: "All fields required" });
         }
 
+        console.log("🔍 Looking up user:", loginUsername);
         const user = await prisma.user.findFirst({
             where: {
                 OR: [
@@ -105,27 +109,37 @@ export const login = async (req, res) => {
         });
 
         if (!user) {
+            console.log("❌ User not found");
             return res.status(400).json({ message: "Invalid credentials" });
         }
 
+        console.log("✅ User found:", user.username);
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
+            console.log("❌ Password mismatch");
             return res.status(400).json({ message: "Invalid credentials" });
         }
 
+        console.log("✅ Password matched");
         const { session, refreshToken } = await createSession(user.id, req);
+        console.log("✅ Session created");
+
         const auth = buildAuthResponse({
             userId: user.id,
             sessionId: session.id,
             refreshToken,
         });
+        console.log("✅ Auth response built");
 
         res.json({
             ...auth,
             user: getSafeUser(user),
         });
+        console.log("✅ Login successful for user:", user.username);
     } catch (error) {
+        console.error("❌ Login error:", error.message);
+        console.error("❌ Full error:", error);
         res.status(500).json({ message: "Internal server error" });
     }
 };

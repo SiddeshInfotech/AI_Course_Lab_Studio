@@ -64,514 +64,287 @@ const tools = [
   { name: "Google Docs Voice Typing", description: "Free speech-to-text in Google Docs", category: "Text", websiteUrl: "https://docs.google.com", inputType: "Audio", outputType: "Text", isPremium: false },
 ];
 
-const inputOutputMappings = [
-  { inputType: "Text", outputType: "Text", tools: ["ChatGPT", "Gemini", "Perplexity", "Claude AI", "DeepSeek", "Notion", "Quillbot", "Elicit", "Smodin", "Genspark"] },
-  { inputType: "Text", outputType: "Audio", tools: ["Suno", "MicMonster", "ElevenLabs"] },
-  { inputType: "Text", outputType: "Image", tools: ["Ideogram", "Freepik", "Leonardo.AI", "Microsoft Designer", "Krea", "OpenArt", "Playground AI"] },
-  { inputType: "Text", outputType: "Video", tools: ["InVideo", "Imagine Art", "Hedra", "Google Veo", "Kapwing", "Kling AI", "Synthesia AI", "HeyGen", "Colossyan", "Hailuo"] },
-  { inputType: "Text", outputType: "Animation", tools: ["Animaker", "Meshy", "Tripo"] },
-  { inputType: "Text", outputType: "Graphics", tools: ["Canva", "Napin AI", "Manus AI", "Julius AI"] },
-  { inputType: "Image", outputType: "Image", tools: ["OpenArt", "Leonardo.AI", "Freepik", "Krea", "LullabyInk"] },
-  { inputType: "Image", outputType: "Video", tools: ["RunwayML", "Hailuo"] },
-  { inputType: "Image", outputType: "Text", tools: ["Google Lens", "ChatGPT"] },
-  { inputType: "Image", outputType: "Animation", tools: ["Meshy", "Tripo"] },
-  { inputType: "Audio", outputType: "Text", tools: ["Suno", "Bhashini", "Google Docs Voice Typing", "Descript", "Otter.ai", "HappyScribe"] },
-  { inputType: "Audio", outputType: "Audio", tools: ["Adobe Podcast", "Bhashini"] },
-  { inputType: "Audio", outputType: "Image", tools: ["Insta3D"] },
-  { inputType: "Video", outputType: "Video", tools: ["Wisecut", "Nolej"] },
-  { inputType: "Video", outputType: "Text", tools: ["Descript", "Otter.ai", "HappyScribe"] },
-  { inputType: "Video", outputType: "Animation", tools: ["DomoAI"] },
-];
+const toolLogoUrls = {
+  "ChatGPT": "https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64",
+  "Gemini": "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=64",
+  "Perplexity": "https://www.google.com/s2/favicons?domain=perplexity.ai&sz=64",
+  "Claude AI": "https://www.google.com/s2/favicons?domain=claude.ai&sz=64",
+  "DeepSeek": "https://www.google.com/s2/favicons?domain=deepseek.com&sz=64",
+  "Notion": "https://www.google.com/s2/favicons?domain=notion.so&sz=64",
+  "Quillbot": "https://www.google.com/s2/favicons?domain=quillbot.com&sz=64",
+  "Elicit": "https://www.google.com/s2/favicons?domain=elicit.com&sz=64",
+  "Smodin": "https://www.google.com/s2/favicons?domain=smodin.io&sz=64",
+  "Genspark": "https://www.google.com/s2/favicons?domain=genspark.ai&sz=64",
+  "Suno": "https://www.google.com/s2/favicons?domain=suno.com&sz=64",
+  "MicMonster": "https://www.google.com/s2/favicons?domain=micmonster.com&sz=64",
+  "ElevenLabs": "https://www.google.com/s2/favicons?domain=elevenlabs.io&sz=64",
+  "Ideogram": "https://www.google.com/s2/favicons?domain=ideogram.ai&sz=64",
+  "Freepik": "https://www.google.com/s2/favicons?domain=freepik.com&sz=64",
+  "Leonardo.AI": "https://www.google.com/s2/favicons?domain=leonardo.ai&sz=64",
+  "Microsoft Designer": "https://www.google.com/s2/favicons?domain=microsoft.com&sz=64",
+  "InVideo": "https://www.google.com/s2/favicons?domain=invideo.io&sz=64",
+  "Imagine Art": "https://www.google.com/s2/favicons?domain=imagine.art&sz=64",
+  "Hedra": "https://www.google.com/s2/favicons?domain=hedra.com&sz=64",
+  "Google Veo": "https://www.google.com/s2/favicons?domain=deepmind.google&sz=64",
+  "Kapwing": "https://www.google.com/s2/favicons?domain=kapwing.com&sz=64",
+  "Kling AI": "https://www.google.com/s2/favicons?domain=klingai.com&sz=64",
+  "Synthesia AI": "https://www.google.com/s2/favicons?domain=synthesia.io&sz=64",
+  "HeyGen": "https://www.google.com/s2/favicons?domain=heygen.com&sz=64",
+  "Colossyan": "https://www.google.com/s2/favicons?domain=colossyan.com&sz=64",
+  "Hailuo": "https://www.google.com/s2/favicons?domain=hailuoai.video&sz=64",
+  "Animaker": "https://www.google.com/s2/favicons?domain=animaker.com&sz=64",
+  "Meshy": "https://www.google.com/s2/favicons?domain=meshy.ai&sz=64",
+  "Tripo": "https://www.google.com/s2/favicons?domain=tripo3d.ai&sz=64",
+  "Canva": "https://www.google.com/s2/favicons?domain=canva.com&sz=64",
+  "Napin AI": "https://www.google.com/s2/favicons?domain=napkin.ai&sz=64",
+  "Playground AI": "https://www.google.com/s2/favicons?domain=playgroundai.com&sz=64",
+  "Manus AI": "https://www.google.com/s2/favicons?domain=manus.ai&sz=64",
+  "Julius AI": "https://www.google.com/s2/favicons?domain=julius.ai&sz=64",
+  "OpenArt": "https://www.google.com/s2/favicons?domain=openart.ai&sz=64",
+  "RunwayML": "https://www.google.com/s2/favicons?domain=runwayml.com&sz=64",
+  "Google Lens": "https://www.google.com/s2/favicons?domain=lens.google.com&sz=64",
+  "Adobe Podcast": "https://www.google.com/s2/favicons?domain=podcast.adobe.com&sz=64",
+  "Bhashini": "https://www.google.com/s2/favicons?domain=bhashini.gov.in&sz=64",
+  "Insta3D": "https://www.google.com/s2/favicons?domain=insta3d.io&sz=64",
+  "Wisecut": "https://www.google.com/s2/favicons?domain=wisecut.video&sz=64",
+  "Descript": "https://www.google.com/s2/favicons?domain=descript.com&sz=64",
+  "Otter.ai": "https://www.google.com/s2/favicons?domain=otter.ai&sz=64",
+  "HappyScribe": "https://www.google.com/s2/favicons?domain=happyscribe.com&sz=64",
+  "DomoAI": "https://www.google.com/s2/favicons?domain=domoai.app&sz=64",
+  "Krea": "https://www.google.com/s2/favicons?domain=krea.ai&sz=64",
+  "LullabyInk": "https://www.google.com/s2/favicons?domain=lullabyink.com&sz=64",
+  "Nolej": "https://www.google.com/s2/favicons?domain=nolej.io&sz=64",
+  "Google Docs Voice Typing": "https://www.google.com/s2/favicons?domain=docs.google.com&sz=64",
+};
 
 async function main() {
   console.log("🌱 Starting database seed...\n");
 
-  // Create admin user
-  const adminPassword = await bcrypt.hash("admin123", 10);
-  const admin = await prisma.user.upsert({
-    where: { username: "admin" },
-    update: {},
-    create: {
-      name: "Administrator",
-      username: "admin",
-      email: "admin@learnai.com",
-      password: adminPassword,
-      isAdmin: true,
-    },
-  });
-  console.log("✅ Admin user created:", admin.username);
+  try {
+    // Delete all existing data with try-catch for each table
+    console.log("🗑️  Clearing deprecated data...");
+    try { await prisma.lessonProgress.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.toolProgress.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.courseProgress.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.toolCourse.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.lesson.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.enrollment.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.dailyUsage.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.course.deleteMany({}); } catch (e) { /* table may not exist */ }
+    try { await prisma.tool.deleteMany({}); } catch (e) { /* table may not exist */ }
+    console.log("✅ Database cleaned");
 
-  // Create a test student user
-  const studentPassword = await bcrypt.hash("student123", 10);
-  const student = await prisma.user.upsert({
-    where: { username: "student" },
-    update: {},
-    create: {
-      name: "Test Student",
-      username: "student",
-      email: "student@learnai.com",
-      password: studentPassword,
-      isAdmin: false,
-    },
-  });
-  console.log("✅ Student user created:", student.username);
-
-  // Seed AI tools
-  const toolLogoUrls = {
-    "ChatGPT": "https://www.google.com/s2/favicons?domain=chatgpt.com&sz=64",
-    "Gemini": "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=64",
-    "Perplexity": "https://www.google.com/s2/favicons?domain=perplexity.ai&sz=64",
-    "Claude AI": "https://www.google.com/s2/favicons?domain=claude.ai&sz=64",
-    "DeepSeek": "https://www.google.com/s2/favicons?domain=deepseek.com&sz=64",
-    "Notion": "https://www.google.com/s2/favicons?domain=notion.so&sz=64",
-    "Quillbot": "https://www.google.com/s2/favicons?domain=quillbot.com&sz=64",
-    "Elicit": "https://www.google.com/s2/favicons?domain=elicit.com&sz=64",
-    "Smodin": "https://www.google.com/s2/favicons?domain=smodin.io&sz=64",
-    "Genspark": "https://www.google.com/s2/favicons?domain=genspark.ai&sz=64",
-    "Suno": "https://www.google.com/s2/favicons?domain=suno.com&sz=64",
-    "MicMonster": "https://www.google.com/s2/favicons?domain=micmonster.com&sz=64",
-    "ElevenLabs": "https://www.google.com/s2/favicons?domain=elevenlabs.io&sz=64",
-    "Ideogram": "https://www.google.com/s2/favicons?domain=ideogram.ai&sz=64",
-    "Freepik": "https://www.google.com/s2/favicons?domain=freepik.com&sz=64",
-    "Leonardo.AI": "https://www.google.com/s2/favicons?domain=leonardo.ai&sz=64",
-    "Microsoft Designer": "https://www.google.com/s2/favicons?domain=microsoft.com&sz=64",
-    "InVideo": "https://www.google.com/s2/favicons?domain=invideo.io&sz=64",
-    "Imagine Art": "https://www.google.com/s2/favicons?domain=imagine.art&sz=64",
-    "Hedra": "https://www.google.com/s2/favicons?domain=hedra.com&sz=64",
-    "Google Veo": "https://www.google.com/s2/favicons?domain=deepmind.google&sz=64",
-    "Kapwing": "https://www.google.com/s2/favicons?domain=kapwing.com&sz=64",
-    "Kling AI": "https://www.google.com/s2/favicons?domain=klingai.com&sz=64",
-    "Synthesia AI": "https://www.google.com/s2/favicons?domain=synthesia.io&sz=64",
-    "HeyGen": "https://www.google.com/s2/favicons?domain=heygen.com&sz=64",
-    "Colossyan": "https://www.google.com/s2/favicons?domain=colossyan.com&sz=64",
-    "Hailuo": "https://www.google.com/s2/favicons?domain=hailuoai.video&sz=64",
-    "Animaker": "https://www.google.com/s2/favicons?domain=animaker.com&sz=64",
-    "Meshy": "https://www.google.com/s2/favicons?domain=meshy.ai&sz=64",
-    "Tripo": "https://www.google.com/s2/favicons?domain=tripo3d.ai&sz=64",
-    "Canva": "https://www.google.com/s2/favicons?domain=canva.com&sz=64",
-    "Napin AI": "https://www.google.com/s2/favicons?domain=napkin.ai&sz=64",
-    "Playground AI": "https://www.google.com/s2/favicons?domain=playgroundai.com&sz=64",
-    "Manus AI": "https://www.google.com/s2/favicons?domain=manus.ai&sz=64",
-    "Julius AI": "https://www.google.com/s2/favicons?domain=julius.ai&sz=64",
-    "OpenArt": "https://www.google.com/s2/favicons?domain=openart.ai&sz=64",
-    "RunwayML": "https://www.google.com/s2/favicons?domain=runwayml.com&sz=64",
-    "Google Lens": "https://www.google.com/s2/favicons?domain=lens.google.com&sz=64",
-    "Adobe Podcast": "https://www.google.com/s2/favicons?domain=podcast.adobe.com&sz=64",
-    "Bhashini": "https://www.google.com/s2/favicons?domain=bhashini.gov.in&sz=64",
-    "Insta3D": "https://www.google.com/s2/favicons?domain=insta3d.io&sz=64",
-    "Wisecut": "https://www.google.com/s2/favicons?domain=wisecut.video&sz=64",
-    "Descript": "https://www.google.com/s2/favicons?domain=descript.com&sz=64",
-    "Otter.ai": "https://www.google.com/s2/favicons?domain=otter.ai&sz=64",
-    "HappyScribe": "https://www.google.com/s2/favicons?domain=happyscribe.com&sz=64",
-    "DomoAI": "https://www.google.com/s2/favicons?domain=domoai.app&sz=64",
-    "Krea": "https://www.google.com/s2/favicons?domain=krea.ai&sz=64",
-    "LullabyInk": "https://www.google.com/s2/favicons?domain=lullabyink.com&sz=64",
-    "Nolej": "https://www.google.com/s2/favicons?domain=nolej.io&sz=64",
-    "Google Docs Voice Typing": "https://www.google.com/s2/favicons?domain=docs.google.com&sz=64",
-  };
-
-  for (const tool of tools) {
-    const imageUrl = toolLogoUrls[tool.name] || null;
-    await prisma.tool.upsert({
-      where: { id: tools.indexOf(tool) + 1 },
-      update: {
-        name: tool.name,
-        description: tool.description,
-        category: tool.category,
-        websiteUrl: tool.websiteUrl,
-        imageUrl: imageUrl,
-        isPremium: tool.isPremium,
-      },
+    // Create admin user
+    const adminPassword = await bcrypt.hash("admin123", 10);
+    const admin = await prisma.user.upsert({
+      where: { username: "admin" },
+      update: {},
       create: {
-        name: tool.name,
-        description: tool.description,
-        category: tool.category,
-        websiteUrl: tool.websiteUrl,
-        imageUrl: imageUrl,
-        isPremium: tool.isPremium,
+        name: "Administrator",
+        username: "admin",
+        email: "admin@learnai.com",
+        password: adminPassword,
+        isAdmin: true,
       },
     });
-  }
-  console.log(`✅ Seeded ${tools.length} AI tools`);
+    console.log("✅ Admin user created:", admin.username);
 
-  // Create sample courses
-  const course1 = await prisma.course.create({
-    data: {
-      title: "Introduction to AI",
-      description: "Learn the fundamentals of Artificial Intelligence",
-      category: "AI Basics",
-      level: "beginner",
-      instructor: "Dr. Jane Smith",
-      duration: "4 weeks",
-      imageUrl: null,
-    },
-  });
-
-  const course2 = await prisma.course.create({
-    data: {
-      title: "Machine Learning Fundamentals",
-      description: "Master the basics of machine learning algorithms",
-      category: "ML",
-      level: "intermediate",
-      instructor: "Prof. John Doe",
-      duration: "6 weeks",
-      imageUrl: null,
-    },
-  });
-
-  const course3 = await prisma.course.create({
-    data: {
-      title: "Deep Learning with Python",
-      description: "Build neural networks from scratch",
-      category: "Deep Learning",
-      level: "advanced",
-      instructor: "Dr. Sarah Johnson",
-      duration: "8 weeks",
-      imageUrl: null,
-    },
-  });
-
-  console.log("✅ Created 3 sample courses");
-
-  // Create detailed lessons for course1 (Introduction to AI) with sections and types
-  const course1Lessons = [
-    // Day 1: Foundations of Neural Networks
-    {
-      courseId: course1.id,
-      title: "Introduction to Artificial Intelligence",
-      description: "Understand the fundamentals of AI and its impact on modern technology",
-      content: "Artificial Intelligence (AI) is the simulation of human intelligence processes by machines...",
-      videoUrl: "https://www.youtube.com/watch?v=ad79nYk2keg",
-      orderIndex: 1,
-      duration: "45 min",
-      section: "Day 1",
-      sectionTitle: "Foundations of Neural Networks",
-      type: "video",
-      objectives: JSON.stringify([
-        "Define artificial intelligence and its core concepts",
-        "Understand the difference between AI, ML, and Deep Learning",
-        "Identify real-world applications of AI"
-      ])
-    },
-    {
-      courseId: course1.id,
-      title: "History and Evolution of AI",
-      description: "Explore the timeline of AI development from its inception to today",
-      content: "The history of AI dates back to the 1950s when Alan Turing proposed the Turing Test...",
-      orderIndex: 2,
-      duration: "30 min",
-      section: "Day 1",
-      sectionTitle: "Foundations of Neural Networks",
-      type: "reading",
-      objectives: JSON.stringify([
-        "Trace the evolution of AI from 1950s to present",
-        "Identify key milestones in AI development",
-        "Understand AI winters and their causes"
-      ])
-    },
-    {
-      courseId: course1.id,
-      title: "AI Fundamentals Quiz",
-      description: "Test your understanding of AI basics",
-      orderIndex: 3,
-      duration: "15 min",
-      section: "Day 1",
-      sectionTitle: "Foundations of Neural Networks",
-      type: "quiz",
-      objectives: JSON.stringify([
-        "Assess knowledge of AI fundamentals",
-        "Reinforce key concepts learned"
-      ])
-    },
-    // Day 2: Neural Network Architecture
-    {
-      courseId: course1.id,
-      title: "Types of AI Systems",
-      description: "Learn about different categories of AI: Narrow AI, General AI, and Super AI",
-      content: "AI systems can be categorized based on their capabilities and functionalities...",
-      videoUrl: "https://www.youtube.com/watch?v=mJeNghZXtMo",
-      orderIndex: 4,
-      duration: "40 min",
-      section: "Day 2",
-      sectionTitle: "Neural Network Architecture",
-      type: "video",
-      objectives: JSON.stringify([
-        "Distinguish between Narrow AI and General AI",
-        "Understand current AI capabilities and limitations",
-        "Explore examples of each AI type"
-      ])
-    },
-    {
-      courseId: course1.id,
-      title: "Machine Learning Basics",
-      description: "Introduction to machine learning and its relationship with AI",
-      content: "Machine Learning is a subset of AI that enables systems to learn from data...",
-      orderIndex: 5,
-      duration: "35 min",
-      section: "Day 2",
-      sectionTitle: "Neural Network Architecture",
-      type: "reading",
-      objectives: JSON.stringify([
-        "Define machine learning and its types",
-        "Understand supervised vs unsupervised learning",
-        "Learn about training data and algorithms"
-      ])
-    },
-    {
-      courseId: course1.id,
-      title: "Hands-on: Build Your First AI Model",
-      description: "Practical exercise to create a simple AI classification model",
-      orderIndex: 6,
-      duration: "60 min",
-      section: "Day 2",
-      sectionTitle: "Neural Network Architecture",
-      type: "exercise",
-      objectives: JSON.stringify([
-        "Set up a Python environment for AI",
-        "Build a basic classification model",
-        "Train and evaluate the model"
-      ])
-    },
-    // Day 3: Advanced Concepts
-    {
-      courseId: course1.id,
-      title: "Deep Learning and Neural Networks",
-      description: "Dive into neural networks and deep learning architectures",
-      content: "Deep learning uses artificial neural networks with multiple layers...",
-      videoUrl: "https://www.youtube.com/watch?v=aircAruvnKk",
-      orderIndex: 7,
-      duration: "50 min",
-      section: "Day 3",
-      sectionTitle: "Deep Learning Fundamentals",
-      type: "video",
-      objectives: JSON.stringify([
-        "Understand neural network structure",
-        "Learn about layers, neurons, and weights",
-        "Explore activation functions"
-      ])
-    },
-    {
-      courseId: course1.id,
-      title: "AI Ethics and Responsible AI",
-      description: "Explore ethical considerations in AI development and deployment",
-      content: "As AI becomes more powerful, ethical considerations become crucial...",
-      orderIndex: 8,
-      duration: "25 min",
-      section: "Day 3",
-      sectionTitle: "Deep Learning Fundamentals",
-      type: "reading",
-      objectives: JSON.stringify([
-        "Identify ethical challenges in AI",
-        "Understand bias in AI systems",
-        "Learn about responsible AI practices"
-      ])
-    },
-    {
-      courseId: course1.id,
-      title: "Final Assessment",
-      description: "Comprehensive quiz covering all course material",
-      orderIndex: 9,
-      duration: "30 min",
-      section: "Day 3",
-      sectionTitle: "Deep Learning Fundamentals",
-      type: "quiz",
-      objectives: JSON.stringify([
-        "Demonstrate mastery of AI concepts",
-        "Apply knowledge to practical scenarios"
-      ])
-    }
-  ];
-
-  // Create lessons for course1
-  for (const lessonData of course1Lessons) {
-    await prisma.lesson.create({ data: lessonData });
-  }
-
-  // Create simpler lessons for course2 and course3
-  await prisma.lesson.createMany({
-    data: [
-      {
-        courseId: course2.id,
-        title: "ML Basics",
-        description: "Introduction to Machine Learning",
-        orderIndex: 1,
-        duration: "40 min",
-        section: "Week 1",
-        sectionTitle: "Introduction to ML",
-        type: "video",
-        objectives: JSON.stringify(["Understand ML fundamentals", "Learn about algorithms"])
-      },
-      {
-        courseId: course2.id,
-        title: "Supervised Learning",
-        description: "Understanding supervised learning",
-        orderIndex: 2,
-        duration: "45 min",
-        section: "Week 1",
-        sectionTitle: "Introduction to ML",
-        type: "video",
-        objectives: JSON.stringify(["Master supervised learning", "Build classification models"])
-      },
-      {
-        courseId: course3.id,
-        title: "Neural Networks",
-        description: "Introduction to neural networks",
-        orderIndex: 1,
-        duration: "50 min",
-        section: "Module 1",
-        sectionTitle: "Neural Network Basics",
-        type: "video",
-        objectives: JSON.stringify(["Build neural networks", "Understand backpropagation"])
-      },
-    ],
-  });
-
-  console.log("✅ Created lessons for courses with sections, types, and objectives");
-
-  // Enroll student in courses
-  await prisma.enrollment.createMany({
-    data: [
-      { userId: student.id, courseId: course1.id },
-      { userId: student.id, courseId: course2.id },
-      { userId: student.id, courseId: course3.id },
-    ],
-  });
-
-  console.log("✅ Enrolled student in courses");
-
-  // Get all lessons for progress tracking
-  const allLessons = await prisma.lesson.findMany({
-    where: {
-      courseId: { in: [course1.id, course2.id, course3.id] }
-    },
-    orderBy: { orderIndex: 'asc' }
-  });
-
-  // Create course progress (2 completed, 1 in progress)
-  await prisma.courseProgress.create({
-    data: {
-      userId: student.id,
-      courseId: course1.id,
-      currentLessonId: 3,
-      completed: false, // In progress - only 2 out of 9 lessons completed
-    },
-  });
-
-  await prisma.courseProgress.create({
-    data: {
-      userId: student.id,
-      courseId: course2.id,
-      currentLessonId: 2,
-      completed: true,
-      completedAt: new Date(),
-    },
-  });
-
-  await prisma.courseProgress.create({
-    data: {
-      userId: student.id,
-      courseId: course3.id,
-      currentLessonId: 1,
-      completed: true,
-      completedAt: new Date(),
-    },
-  });
-
-  console.log("✅ Created course progress records");
-
-  // Create lesson progress for course1 (first 2 lessons completed, currently on 3rd)
-  const course1LessonsInDb = allLessons.filter(l => l.courseId === course1.id);
-
-  // Mark first 2 lessons as completed
-  if (course1LessonsInDb.length >= 2) {
-    await prisma.lessonProgress.create({
-      data: {
-        userId: student.id,
-        lessonId: course1LessonsInDb[0].id,
-        courseId: course1.id,
-        completed: true,
-        completedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+    // Create a test student user
+    const studentPassword = await bcrypt.hash("student123", 10);
+    const student = await prisma.user.upsert({
+      where: { username: "student" },
+      update: {},
+      create: {
+        name: "Test Student",
+        username: "student",
+        email: "student@learnai.com",
+        password: studentPassword,
+        isAdmin: false,
       },
     });
+    console.log("✅ Student user created:", student.username);
 
-    await prisma.lessonProgress.create({
-      data: {
-        userId: student.id,
-        lessonId: course1LessonsInDb[1].id,
-        courseId: course1.id,
-        completed: true,
-        completedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-      },
-    });
-  }
-
-  // Mark all lessons in course2 and course3 as completed since those courses are done
-  const course2LessonsInDb = allLessons.filter(l => l.courseId === course2.id);
-  const course3LessonsInDb = allLessons.filter(l => l.courseId === course3.id);
-
-  for (const lesson of [...course2LessonsInDb, ...course3LessonsInDb]) {
-    await prisma.lessonProgress.create({
-      data: {
-        userId: student.id,
-        lessonId: lesson.id,
-        courseId: lesson.courseId,
-        completed: true,
-        completedAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000), // Random time in last week
-      },
-    });
-  }
-
-  console.log("✅ Created lesson progress records (2/9 for course1, all for course2 & course3)");
-
-  // Create daily usage for streak (5 consecutive days)
-  const today = new Date();
-  for (let i = 0; i < 5; i++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    date.setHours(0, 0, 0, 0);
-
-    await prisma.dailyUsage.upsert({
-      where: {
-        userId_date: {
-          userId: student.id,
-          date: date,
+    // Seed all AI tools
+    console.log("\n🛠️  Seeding AI tools...");
+    for (const tool of tools) {
+      const imageUrl = toolLogoUrls[tool.name] || null;
+      await prisma.tool.create({
+        data: {
+          name: tool.name,
+          description: tool.description,
+          category: tool.category,
+          websiteUrl: tool.websiteUrl,
+          imageUrl: imageUrl,
+          isPremium: tool.isPremium,
         },
-      },
-      update: {
-        totalSeconds: 3600 + Math.floor(Math.random() * 3600),
-        lastHeartbeat: new Date(),
-      },
-      create: {
-        userId: student.id,
-        date: date,
-        totalSeconds: 3600 + Math.floor(Math.random() * 3600),
-        lastHeartbeat: new Date(),
+      });
+    }
+    console.log(`✅ Seeded ${tools.length} AI tools`);
+
+    // Create a sample course for demo (so learning page doesn't get stuck loading)
+    console.log("\n📚 Creating comprehensive AI tools mastery course...");
+    const sampleCourse = await prisma.course.create({
+      data: {
+        title: "Complete AI Tools Mastery: 50 Essential Tools",
+        description: "Master all 50 AI tools in our comprehensive platform. Learn from ChatGPT to Ideogram, covering Text, Audio, Image, Video, Animation, and Graphics AI tools. 50-day intensive course.",
+        category: "AI Tools Mastery",
+        level: "beginner",
+        instructor: "AI Expert",
+        duration: "50 days",
       },
     });
+    console.log("✅ Master course created:", sampleCourse.title);
+
+    // Link image generation tools to the course
+    const imageTools = ["Ideogram", "Freepik", "Leonardo.AI", "OpenArt"];
+    for (let i = 0; i < imageTools.length; i++) {
+      const tool = await prisma.tool.findUnique({ where: { name: imageTools[i] } });
+      if (tool) {
+        await prisma.toolCourse.create({
+          data: {
+            courseId: sampleCourse.id,
+            toolId: tool.id,
+            orderIndex: i + 1,
+            section: `Day ${i + 1}`,
+            sectionTitle: `${tool.name} - Image Generation Mastery`,
+            description: `Learn how to use ${tool.name} to create professional AI-generated images from text prompts`,
+            demoVideoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&controls=1&showinfo=0",
+            isPremium: false,
+          },
+        });
+      }
+    }
+    console.log("✅ Tools linked to course (Days 1-4)");
+
+    // Create lessons for all 50 AI tools organized by Input Type → Output Type
+    // CORRECT ORDER: Text→Text, Text→Image, Text→Video, Text→Audio, Text→Animation, Text→Graphics, then Image, Audio, Video inputs
+    console.log("\n📖 Creating lessons in correct Input→Output sequence...");
+
+    // Correct sequence - for each input type: Text, Image, Video, Audio, Animation, Graphics outputs
+    const correctSequence = [
+      // Text Input - outputs in order: Text, Image, Video, Audio, Animation, Graphics
+      { input: "Text", output: "Text", tools: ["ChatGPT", "Gemini", "Perplexity", "Claude AI", "DeepSeek", "Notion", "Quillbot", "Elicit", "Smodin", "Genspark"] },
+      { input: "Text", output: "Image", tools: ["Ideogram", "Freepik", "Leonardo.AI", "Microsoft Designer", "Playground AI", "Krea"] },
+      { input: "Text", output: "Video", tools: ["InVideo", "Imagine Art", "Hedra", "Google Veo", "Kapwing", "Kling AI", "Synthesia AI", "HeyGen", "Colossyan", "Hailuo"] },
+      { input: "Text", output: "Audio", tools: ["Suno", "MicMonster", "ElevenLabs"] },
+      { input: "Text", output: "Animation", tools: ["Animaker", "Meshy", "Tripo"] },
+      { input: "Text", output: "Graphics", tools: ["Canva", "Napin AI", "Manus AI", "Julius AI"] },
+      // Image Input - outputs in order: Text, Image, Video, Audio, Animation, Graphics
+      { input: "Image", output: "Text", tools: ["Google Lens"] },
+      { input: "Image", output: "Image", tools: ["OpenArt", "LullabyInk"] },
+      { input: "Image", output: "Video", tools: ["RunwayML"] },
+      // Audio Input - outputs in order: Text, Image, Video, Audio, Animation, Graphics
+      { input: "Audio", output: "Text", tools: ["Otter.ai", "Google Docs Voice Typing"] },
+      { input: "Audio", output: "Image", tools: ["Insta3D"] },
+      { input: "Audio", output: "Audio", tools: ["Adobe Podcast", "Bhashini"] },
+      // Video Input - outputs in order: Text, Image, Video, Audio, Animation, Graphics
+      { input: "Video", output: "Text", tools: ["Descript", "HappyScribe"] },
+      { input: "Video", output: "Video", tools: ["Wisecut", "Nolej"] },
+      { input: "Video", output: "Animation", tools: ["DomoAI"] },
+    ];
+
+    let dayCounter = 1;
+
+    // Create lessons in correct sequence
+    for (const mapping of correctSequence) {
+      for (const toolName of mapping.tools) {
+        const tool = tools.find(t => t.name === toolName);
+        if (tool) {
+          await prisma.lesson.create({
+            data: {
+              courseId: sampleCourse.id,
+              title: `${tool.name}: Tutorial & Mastery Guide`,
+              description: tool.description,
+              content: `Master ${tool.name} - ${tool.description}. Input: ${tool.inputType} → Output: ${tool.outputType}. Learn how to leverage this AI tool to boost your productivity and creativity. Perfect for ${tool.category} tasks and workflows.`,
+              videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&controls=1&showinfo=0",
+              section: `Day ${dayCounter}`,
+              sectionTitle: `${tool.name} (${tool.inputType}→${tool.outputType})`,
+              orderIndex: dayCounter,
+              type: "video",
+              duration: "15-20 minutes",
+              objectives: JSON.stringify([
+                `Understand ${tool.name} features and capabilities`,
+                `Learn the interface and navigation`,
+                `Master key use cases and workflows`,
+                `Create your first output with ${tool.name}`,
+                `Pro tips and advanced techniques`
+              ]),
+            },
+          });
+          dayCounter++;
+        }
+      }
+    }
+    console.log(`✅ Created ${dayCounter - 1} lessons in correct Input→Output sequence`);
+    // Enroll student in the sample course
+    await prisma.enrollment.create({
+      data: {
+        userId: student.id,
+        courseId: sampleCourse.id,
+      },
+    });
+    console.log("✅ Student automatically enrolled in sample course");
+
+    // Create course progress for student
+    await prisma.courseProgress.create({
+      data: {
+        userId: student.id,
+        courseId: sampleCourse.id,
+        currentLessonId: 1,
+      },
+    });
+    console.log("✅ Course progress initialized for student");
+
+    console.log("\n" + "=".repeat(60));
+    console.log("📋 LOGIN CREDENTIALS");
+    console.log("=".repeat(60));
+    console.log("Admin  - Username: admin     | Password: admin123");
+    console.log("Student - Username: student   | Password: student123");
+    console.log("=".repeat(60));
+
+    console.log("\n✨ DATABASE READY FOR LEARNING");
+    console.log("   - Users: Admin & Student ready");
+    console.log("   - Tools: All 50 AI tools available");
+    console.log("   - Master Course: 'Complete AI Tools Mastery: 50 Essential Tools'");
+    console.log("   - Lessons: 50 organized by Input→Output type");
+    console.log("   - Duration: 50-day intensive learning path");
+    console.log("");
+    console.log("   📚 LEARNING SEQUENCE:");
+    console.log("      TEXT INPUT:");
+    console.log("        Days 1-10:   Text→Text (ChatGPT, Gemini, etc.)");
+    console.log("        Days 11-16:  Text→Image (Ideogram, Freepik, Leonardo.AI, etc.)");
+    console.log("        Days 17-26:  Text→Video (InVideo, HeyGen, etc.)");
+    console.log("        Days 27-29:  Text→Audio (Suno, MicMonster, ElevenLabs)");
+    console.log("        Days 30-32:  Text→Animation (Animaker, Meshy, Tripo)");
+    console.log("        Days 33-36:  Text→Graphics (Canva, Napin AI, etc.)");
+    console.log("");
+    console.log("      IMAGE INPUT:");
+    console.log("        Day 37:      Image→Text (Google Lens)");
+    console.log("        Days 38-39:  Image→Image (OpenArt, LullabyInk)");
+    console.log("        Day 40:      Image→Video (RunwayML)");
+    console.log("");
+    console.log("      AUDIO INPUT:");
+    console.log("        Days 41-42:  Audio→Text (Otter.ai, Google Docs Voice Typing)");
+    console.log("        Day 43:      Audio→Image (Insta3D)");
+    console.log("        Days 44-45:  Audio→Audio (Adobe Podcast, Bhashini)");
+    console.log("");
+    console.log("      VIDEO INPUT:");
+    console.log("        Days 46-47:  Video→Text (Descript, HappyScribe)");
+    console.log("        Days 48-49:  Video→Video (Wisecut, Nolej)");
+    console.log("        Day 50:      Video→Animation (DomoAI)");
+    console.log("");
+    console.log("   - Learning path organized by Input type first, then Output type");
+    console.log("   - Student: Auto-enrolled with full course access");
+    console.log("");
+  } catch (error) {
+    console.error("❌ Seed error:", error);
+    throw error;
   }
-
-  console.log("✅ Created 5 days of usage streak");
-
-  // Create input-output mappings as metadata stored with tools
-  for (const mapping of inputOutputMappings) {
-    console.log(`📦 Mapping: ${mapping.inputType} → ${mapping.outputType}: ${mapping.tools.length} tools`);
-  }
-
-  console.log("\n🎉 Database seeding completed!");
-  console.log("\n📋 Login Credentials:");
-  console.log("   Admin - Username: admin, Password: admin123");
-  console.log("   Student - Username: student, Password: student123");
-  console.log("\n📊 Test Student Stats:");
-  console.log("   - 5-day streak");
-  console.log("   - 3 courses enrolled");
-  console.log("   - 2 courses completed (course2 & course3)");
-  console.log("   - 1 course in progress (course1: 2/9 lessons completed)");
-  console.log("   - Total: 12 lessons across all courses");
 }
 
 main()
   .catch((e) => {
-    console.error("❌ Seed error:", e);
+    console.error("Fatal error:", e);
     process.exit(1);
   })
   .finally(async () => {

@@ -1,13 +1,25 @@
 import jwt from "jsonwebtoken";
 
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
+
 export const signAccessToken = (payload) => {
-    return jwt.sign(payload, process.env.JWT_SECRET, {
-        expiresIn: process.env.ACCESS_TOKEN_TTL || "15m",
-    });
+    try {
+        return jwt.sign(payload, JWT_SECRET, {
+            expiresIn: process.env.ACCESS_TOKEN_TTL || "15m",
+        });
+    } catch (error) {
+        console.error("❌ JWT sign error:", error);
+        throw error;
+    }
 };
 
 export const verifyAccessToken = (token) => {
-    return jwt.verify(token, process.env.JWT_SECRET);
+    try {
+        return jwt.verify(token, JWT_SECRET);
+    } catch (error) {
+        console.error("❌ JWT verify error:", error);
+        throw error;
+    }
 };
 
 // Backward-compatible aliases for existing imports.
