@@ -8,6 +8,7 @@ import usageRoutes from "./routes/usageRoutes.js";
 import progressRoutes from "./routes/progressRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
+import videoRoutes from "./routes/videoRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import learningRoutes from "./routes/learningRoutes.js";
 
@@ -32,6 +33,7 @@ app.use("/api/usage", usageRoutes);
 app.use("/api/progress", progressRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/media", mediaRoutes);
+app.use("/api/admin/videos", videoRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/learning", learningRoutes);
 

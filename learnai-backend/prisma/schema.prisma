@@ -13,6 +13,8 @@ model User {
   username       String           @unique
   email          String?          @unique
   password       String
+  rollNumber     String?          // Student roll number
+  dob            DateTime?        // Date of birth
   isAdmin        Boolean          @default(false)
   created_at     DateTime         @default(now())
   enrollments    Enrollment[]
@@ -188,15 +190,24 @@ model LessonProgress {
 }
 
 model Media {
-  id         Int      @id @default(autoincrement())
-  filename   String // original filename
-  mimeType   String // e.g. "video/mp4", "image/png"
-  size       Int // file size in bytes
-  data       Bytes // binary file data stored in database
-  uploadedBy Int? // admin who uploaded
-  entityType String? // "course", "lesson" - what this media belongs to
-  entityId   Int? // ID of the related entity
-  createdAt  DateTime @default(now())
+  id               Int       @id @default(autoincrement())
+  filename         String    // original filename
+  mimeType         String    // e.g. "video/mp4", "image/png"
+  size             Int       // compressed file size in bytes
+  data             Bytes     // binary file data stored in database
+  uploadedBy       Int?      // admin who uploaded
+  entityType       String?   // "course", "lesson" - what this media belongs to
+  entityId         Int?      // ID of the related entity
+
+  // Video compression and optimization fields
+  thumbnail        Bytes?    // video thumbnail data (JPEG format)
+  originalSize     Int?      // original file size before compression
+  compressionRatio Float?    // compression ratio (0.0 to 1.0)
+  processingTime   Int?      // processing time in milliseconds
+  isCompressed     Boolean   @default(false) // whether video was compressed
+
+  createdAt        DateTime  @default(now())
 
   @@index([entityType, entityId])
+  @@index([mimeType])
 }

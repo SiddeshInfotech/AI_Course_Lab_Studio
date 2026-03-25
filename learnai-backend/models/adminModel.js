@@ -8,6 +8,8 @@ export const getAllUsers = () =>
             name: true,
             username: true,
             email: true,
+            rollNumber: true,
+            dob: true,
             isAdmin: true,
             created_at: true,
             _count: {

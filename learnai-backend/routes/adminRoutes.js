@@ -4,20 +4,12 @@ import {
     dashboard,
     listUsers,
     getUser,
+    getUserDetailed,
     addUser,
     toggleAdmin,
     removeUser,
 } from "../controllers/adminController.js";
-import {
-    listCourses,
-    addCourse,
-    editCourse,
-    removeCourse,
-    listLessons,
-    addLesson,
-    editLesson,
-    removeLesson,
-} from "../controllers/courseController.js";
+// Course management is handled by courseRoutes.js
 import {
     uploadFile,
     uploadMultipleFiles,
@@ -48,21 +40,10 @@ router.get("/dashboard", dashboard);
 // User management
 router.get("/users", listUsers);
 router.get("/users/:id", getUser);
+router.get("/users/:id/detailed", getUserDetailed);
 router.post("/users", addUser);
 router.patch("/users/:id/admin", toggleAdmin);
 router.delete("/users/:id", removeUser);
-
-// Course management
-router.get("/courses", listCourses);
-router.post("/courses", addCourse);
-router.put("/courses/:id", editCourse);
-router.delete("/courses/:id", removeCourse);
-
-// Lesson management
-router.get("/courses/:id/lessons", listLessons);
-router.post("/courses/:id/lessons", addLesson);
-router.put("/courses/:courseId/lessons/:lessonId", editLesson);
-router.delete("/courses/:courseId/lessons/:lessonId", removeLesson);
 
 // Media/Upload management
 router.post("/upload", upload.single("file"), uploadFile);

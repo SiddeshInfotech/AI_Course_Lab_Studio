@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unknown-property */
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useRef } from "react";
 import {
   ArrowLeft,
   Play,
@@ -21,6 +21,14 @@ import {
   Sparkles,
   AlertCircle,
   Lock,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  SkipBack,
+  SkipForward,
+  Pause,
+  Loader,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -61,6 +69,459 @@ interface CurrentLesson {
   objectives: string[];
   orderIndex: number;
 }
+
+// Enhanced video player component for database-stored videos
+const DatabaseVideoPlayer = ({
+  videoUrl,
+  title,
+  className = "",
+}: {
+  videoUrl: string;
+  title: string;
+  className?: string;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [urlExpiresAt, setUrlExpiresAt] = useState<string | null>(null);
+
+  // Extract media ID from video URL (e.g., "/api/media/123" → "123")
+  const getMediaIdFromUrl = (url: string): number | null => {
+    const match = url.match(/\/api\/media\/(\d+)/);
+    return match ? parseInt(match[1]) : null;
+  };
+
+  // Get signed URL for secure video access
+  const getSignedUrl = async (mediaId: number): Promise<string | null> => {
+    try {
+      console.log(`🔄 Getting signed URL for media ID: ${mediaId}`);
+      const result = await api.admin.getSignedUrl(mediaId);
+      console.log(`✅ Signed URL received:`, result);
+      setUrlExpiresAt(result.expiresAt);
+      return result.url;
+    } catch (error) {
+      console.error("❌ Failed to get signed URL:", error);
+      setError("Failed to load video. Authentication error.");
+      return null;
+    }
+  };
+
+  // Check if URL needs refresh (expires soon)
+  const needsUrlRefresh = (): boolean => {
+    if (!urlExpiresAt) return true;
+    const expiryTime = new Date(urlExpiresAt).getTime();
+    const currentTime = Date.now();
+    // Refresh if expires within 5 minutes
+    return (expiryTime - currentTime) < 5 * 60 * 1000;
+  };
+
+  // Initialize or refresh the signed URL
+  const initializeVideoUrl = async () => {
+    console.log(`🎬 Initializing video URL: ${videoUrl}`);
+    const mediaId = getMediaIdFromUrl(videoUrl);
+    if (!mediaId) {
+      console.error(`❌ Invalid video URL format: ${videoUrl}`);
+      setError("Invalid video URL format");
+      setIsLoading(false);
+      return;
+    }
+
+    console.log(`📹 Extracted media ID: ${mediaId}`);
+
+    if (!signedUrl || needsUrlRefresh()) {
+      console.log(`🔄 Need to get new signed URL (current: ${signedUrl ? 'exists' : 'none'})`);
+      setIsLoading(true);
+      const newSignedUrl = await getSignedUrl(mediaId);
+      if (newSignedUrl) {
+        console.log(`✅ Setting signed URL: ${newSignedUrl}`);
+        setSignedUrl(newSignedUrl);
+        setError(null);
+      } else {
+        console.error(`❌ Failed to get signed URL for media ${mediaId}`);
+      }
+      setIsLoading(false);
+    } else {
+      console.log(`✅ Using existing signed URL: ${signedUrl}`);
+    }
+  };
+
+  // Initialize signed URL on mount and when videoUrl changes
+  useEffect(() => {
+    initializeVideoUrl();
+  }, [videoUrl]);
+
+  // Auto-refresh URL before expiry
+  useEffect(() => {
+    if (!urlExpiresAt) return;
+
+    const expiryTime = new Date(urlExpiresAt).getTime();
+    const currentTime = Date.now();
+    const timeUntilRefresh = Math.max(0, (expiryTime - currentTime) - 5 * 60 * 1000); // Refresh 5 min before expiry
+
+    const timeout = setTimeout(() => {
+      initializeVideoUrl();
+    }, timeUntilRefresh);
+
+    return () => clearTimeout(timeout);
+  }, [urlExpiresAt]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleLoadedData = () => {
+      setIsLoading(false);
+      setDuration(video.duration);
+    };
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+      setProgress((video.currentTime / video.duration) * 100);
+    };
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+
+    const handleError = () => {
+      // If URL might be expired, try refreshing it
+      if (needsUrlRefresh()) {
+        console.log("Video error - attempting URL refresh");
+        initializeVideoUrl();
+      } else {
+        setError("Failed to load video. Please try again.");
+        setIsLoading(false);
+      }
+    };
+
+    const handleLoadStart = () => {
+      if (signedUrl) setIsLoading(true);
+    };
+
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("play", handlePlay);
+    video.addEventListener("pause", handlePause);
+    video.addEventListener("error", handleError);
+    video.addEventListener("loadstart", handleLoadStart);
+
+    return () => {
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("play", handlePlay);
+      video.removeEventListener("pause", handlePause);
+      video.removeEventListener("error", handleError);
+      video.removeEventListener("loadstart", handleLoadStart);
+    };
+  }, [signedUrl]); // Re-attach listeners when signed URL changes
+
+  const togglePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isPlaying) {
+      video.pause();
+    } else {
+      video.play();
+    }
+  };
+
+  const toggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.muted = !video.muted;
+    setIsMuted(video.muted);
+  };
+
+  const toggleFullscreen = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (!isFullscreen) {
+      if (video.requestFullscreen) {
+        video.requestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+    setIsFullscreen(!isFullscreen);
+  };
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    const progressBar = e.currentTarget;
+    if (!video || !progressBar) return;
+
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const newTime = (clickX / rect.width) * duration;
+    video.currentTime = newTime;
+  };
+
+  const skip = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.currentTime = Math.max(
+      0,
+      Math.min(duration, video.currentTime + seconds),
+    );
+  };
+
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  if (error) {
+    return (
+      <div
+        className={`flex items-center justify-center bg-slate-900 ${className}`}
+      >
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-red-400 text-sm mb-2">Video Error</p>
+          <p className="text-slate-400 text-xs">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`relative bg-black group ${className}`}>
+      {/* Video Element */}
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        preload="metadata"
+        playsInline
+        onContextMenu={(e) => e.preventDefault()}
+        key={signedUrl} // Force reload when URL changes
+      >
+        {signedUrl && (
+          <source src={signedUrl} type="video/mp4" />
+        )}
+        <p className="text-white text-center p-4">
+          Your browser doesn't support video playback.
+        </p>
+      </video>
+
+      {/* Loading Overlay */}
+      {(isLoading || !signedUrl) && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
+          <div className="text-center">
+            <Loader className="w-8 h-8 text-white mx-auto mb-2 animate-spin" />
+            <p className="text-white text-sm">
+              {!signedUrl ? "Preparing video..." : "Loading video..."}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Video Controls */}
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {/* Play/Pause Overlay */}
+        <div
+          className="absolute inset-0 flex items-center justify-center cursor-pointer"
+          onClick={togglePlay}
+        >
+          {!isPlaying && !isLoading && (
+            <div className="bg-black bg-opacity-50 rounded-full p-4">
+              <Play className="w-12 h-12 text-white" fill="white" />
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Controls */}
+        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-75 p-4">
+          {/* Progress Bar */}
+          <div
+            className="w-full h-1 bg-gray-600 rounded-full cursor-pointer mb-4"
+            onClick={handleProgressClick}
+          >
+            <div
+              className="h-full bg-blue-500 rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          {/* Control Buttons */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={togglePlay}
+                className="text-white hover:text-blue-400 transition-colors"
+              >
+                {isPlaying ? (
+                  <Pause className="w-6 h-6" />
+                ) : (
+                  <Play className="w-6 h-6" fill="white" />
+                )}
+              </button>
+
+              <button
+                onClick={() => skip(-10)}
+                className="text-white hover:text-blue-400 transition-colors"
+              >
+                <SkipBack className="w-5 h-5" />
+              </button>
+
+              <button
+                onClick={() => skip(10)}
+                className="text-white hover:text-blue-400 transition-colors"
+              >
+                <SkipForward className="w-5 h-5" />
+              </button>
+
+              <button
+                onClick={toggleMute}
+                className="text-white hover:text-blue-400 transition-colors"
+              >
+                {isMuted ? (
+                  <VolumeX className="w-5 h-5" />
+                ) : (
+                  <Volume2 className="w-5 h-5" />
+                )}
+              </button>
+
+              <span className="text-white text-sm">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleFullscreen}
+                className="text-white hover:text-blue-400 transition-colors"
+              >
+                {isFullscreen ? (
+                  <Minimize className="w-5 h-5" />
+                ) : (
+                  <Maximize className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// YouTube video player component (existing logic)
+const YouTubeVideoPlayer = ({
+  videoUrl,
+  title,
+  className = "",
+}: {
+  videoUrl: string;
+  title: string;
+  className?: string;
+}) => {
+  // Extract video ID from YouTube URL
+  const getYouTubeId = (url: string) => {
+    let videoId = "";
+    if (url.includes("youtube.com/embed/")) {
+      videoId = url.match(/embed\/([^?&]+)/)?.[1] || "";
+    } else if (url.includes("youtube.com/watch")) {
+      videoId = url.match(/v=([^&]+)/)?.[1] || "";
+    } else if (url.includes("youtu.be/")) {
+      videoId = url.match(/youtu\.be\/([^?&]+)/)?.[1] || "";
+    }
+    return videoId;
+  };
+
+  const videoId = getYouTubeId(videoUrl);
+
+  if (!videoId) {
+    return (
+      <div
+        className={`flex items-center justify-center bg-slate-900 ${className}`}
+      >
+        <div className="text-center">
+          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+          <p className="text-red-400 text-sm">Invalid YouTube URL</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`bg-black ${className}`}>
+      <iframe
+        width="100%"
+        height="100%"
+        src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&modestbranding=1&rel=0&fs=1`}
+        title={title}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        className="w-full h-full"
+      />
+    </div>
+  );
+};
+
+// Smart video player that detects video type
+const SmartVideoPlayer = ({
+  videoUrl,
+  title,
+}: {
+  videoUrl: string;
+  title: string;
+}) => {
+  // Detect video type
+  const isDataBaseVideo =
+    videoUrl.startsWith("/api/media/") || videoUrl.includes("/api/media/");
+  const isYouTubeVideo =
+    videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be");
+
+  const playerClassName = "w-full h-full";
+
+  if (isDataBaseVideo) {
+    return (
+      <DatabaseVideoPlayer
+        videoUrl={videoUrl}
+        title={title}
+        className={playerClassName}
+      />
+    );
+  } else if (isYouTubeVideo) {
+    return (
+      <YouTubeVideoPlayer
+        videoUrl={videoUrl}
+        title={title}
+        className={playerClassName}
+      />
+    );
+  } else {
+    // Handle other video URLs (Vimeo, direct video files, etc.)
+    return (
+      <div
+        className={`flex items-center justify-center bg-slate-900 ${playerClassName}`}
+      >
+        <div className="text-center">
+          <Video className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-400 text-sm mb-2">
+            Unsupported Video Format
+          </p>
+          <p className="text-slate-500 text-xs">
+            Please use YouTube videos or upload videos through the admin panel
+          </p>
+        </div>
+      </div>
+    );
+  }
+};
 
 function LearningPageContent() {
   const router = useRouter();
@@ -255,7 +716,6 @@ function LearningPageContent() {
               fill
               sizes="112px"
               className="object-contain"
-
             />
           </div>
         </div>
@@ -481,7 +941,7 @@ function LearningPageContent() {
         {/* ── RIGHT: Main content (video + simplified below) ── */}
         <main className="flex-1 overflow-y-auto bg-[#F8FAFC]">
           <div className="max-w-4xl mx-auto p-6 md:p-8">
-            {/* Video Player Container - Protected */}
+            {/* Enhanced Video Player Container - Supports Database & YouTube Videos */}
             {currentLesson?.videoUrl ? (
               <div
                 className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden border border-slate-800 mb-6"
@@ -490,48 +950,10 @@ function LearningPageContent() {
                   return false;
                 }}
               >
-                {/* Protected YouTube iframe embed */}
-                <div className="w-full h-full flex items-center justify-center bg-black">
-                  {(() => {
-                    // Extract video ID from YouTube URL
-                    const getYouTubeId = (url: string) => {
-                      let videoId = "";
-                      if (url.includes("youtube.com/embed/")) {
-                        videoId = url.match(/embed\/([^?&]+)/)?.[1] || "";
-                      } else if (url.includes("youtube.com/watch")) {
-                        videoId = url.match(/v=([^&]+)/)?.[1] || "";
-                      } else if (url.includes("youtu.be/")) {
-                        videoId = url.match(/youtu\.be\/([^?&]+)/)?.[1] || "";
-                      }
-                      return videoId;
-                    };
-
-                    const videoId = getYouTubeId(currentLesson.videoUrl);
-
-                    if (!videoId) {
-                      return (
-                        <div className="text-center">
-                          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                          <p className="text-red-400 text-sm">
-                            Invalid video URL
-                          </p>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <iframe
-                        width="100%"
-                        height="100%"
-                        src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&modestbranding=1&rel=0&fs=1`}
-                        title={currentLesson.title}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        className="w-full h-full"
-                      />
-                    );
-                  })()}
-                </div>
+                <SmartVideoPlayer
+                  videoUrl={currentLesson.videoUrl}
+                  title={currentLesson.title}
+                />
 
                 {/* Screenshot Prevention Canvas */}
                 <canvas

@@ -12,6 +12,9 @@ import {
     addLesson,
     editLesson,
     removeLesson,
+    getAdminCourseStats,
+    getAdminCourseList,
+    getCourseEnrollments,
 } from "../controllers/courseController.js";
 import {
     createCourseFromTools,
@@ -23,24 +26,27 @@ import accessLimitMiddleware from "../middleware/accessLimitMiddleware.js";
 
 const router = express.Router();
 
-// Course routes
+// Course routes (CRUD operations require admin privileges)
 router.get("/", listCourses);
 router.get("/enrolled", authMiddleware, listEnrolledCourses);
 router.get("/:id", getCourse);
 router.get("/:id/content", authMiddleware, accessLimitMiddleware, getCourseContent);
-router.post("/", authMiddleware, addCourse);
-router.put("/:id", authMiddleware, editCourse);
-router.delete("/:id", authMiddleware, removeCourse);
+router.post("/", authMiddleware, adminMiddleware, addCourse);
+router.put("/:id", authMiddleware, adminMiddleware, editCourse);
+router.delete("/:id", authMiddleware, adminMiddleware, removeCourse);
 router.post("/:id/enroll", authMiddleware, enroll);
 
-// Admin: Course generation from tool mappings
+// Admin: Course management and statistics
+router.get("/admin/stats", authMiddleware, adminMiddleware, getAdminCourseStats);
+router.get("/admin/detailed", authMiddleware, adminMiddleware, getAdminCourseList);
+router.get("/admin/enrollments/:courseId", authMiddleware, adminMiddleware, getCourseEnrollments);
 router.get("/admin/mappings", authMiddleware, adminMiddleware, getAvailableToolMappings);
 router.post("/admin/generate-from-tools", authMiddleware, adminMiddleware, createCourseFromTools);
 
-// Lesson routes
+// Lesson routes (CRUD operations require admin privileges)
 router.get("/:id/lessons", listLessons);
-router.post("/:id/lessons", authMiddleware, addLesson);
-router.put("/:courseId/lessons/:lessonId", authMiddleware, editLesson);
-router.delete("/:courseId/lessons/:lessonId", authMiddleware, removeLesson);
+router.post("/:id/lessons", authMiddleware, adminMiddleware, addLesson);
+router.put("/:courseId/lessons/:lessonId", authMiddleware, adminMiddleware, editLesson);
+router.delete("/:courseId/lessons/:lessonId", authMiddleware, adminMiddleware, removeLesson);
 
 export default router;

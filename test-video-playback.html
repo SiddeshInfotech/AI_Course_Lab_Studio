@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Video Playback Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .test-section {
+        margin: 20px 0;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+      }
+      .video-container {
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        margin: 10px 0;
+      }
+      video {
+        width: 100%;
+        height: 300px;
+        object-fit: contain;
+      }
+      iframe {
+        width: 100%;
+        height: 300px;
+        border: none;
+      }
+      .error {
+        color: red;
+        background: #ffe6e6;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+      .success {
+        color: green;
+        background: #e6ffe6;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Video Playback Test - LearnAI System</h1>
+
+    <div class="test-section">
+      <h2>1. YouTube Video Test (SmartVideoPlayer)</h2>
+      <p>Testing YouTube video detection and playback:</p>
+      <div class="video-container">
+        <iframe
+          src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+          title="YouTube Test Video"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen
+        >
+        </iframe>
+      </div>
+      <div class="success">
+        ✅ YouTube video should play normally (if iframe is visible)
+      </div>
+    </div>
+
+    <div class="test-section">
+      <h2>2. Database Video Test (Signed URL)</h2>
+      <p>Testing database-stored video with signed URL authentication:</p>
+      <div id="signedUrlTest">
+        <button onclick="testSignedUrl()">Test Signed URL Generation</button>
+        <div id="signedUrlResult"></div>
+      </div>
+      <div class="video-container">
+        <video id="databaseVideo" controls preload="metadata">
+          <p>Video element for testing database videos</p>
+        </video>
+      </div>
+    </div>
+
+    <div class="test-section">
+      <h2>3. System Status</h2>
+      <div id="systemStatus">
+        <button onclick="checkSystemStatus()">Check Backend Connection</button>
+        <div id="statusResult"></div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:5001/api";
+
+      // Get token from localStorage (simulate logged-in state)
+      function getAuthToken() {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          return (
+            prompt("Enter auth token (from localStorage after login):") ||
+            "mock-token"
+          );
+        }
+        return token;
+      }
+
+      async function testSignedUrl() {
+        const resultDiv = document.getElementById("signedUrlResult");
+        const video = document.getElementById("databaseVideo");
+
+        try {
+          resultDiv.innerHTML =
+            "<div>🔄 Testing signed URL generation...</div>";
+
+          // Test with a mock media ID (you'll need a real one from the database)
+          const mediaId = prompt(
+            "Enter media ID to test (check admin panel for uploaded videos):",
+            "1",
+          );
+
+          if (!mediaId) {
+            resultDiv.innerHTML =
+              '<div class="error">❌ No media ID provided</div>';
+            return;
+          }
+
+          const response = await fetch(
+            `${API_BASE}/media/${mediaId}/signed-url`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${getAuthToken()}`,
+              },
+              body: JSON.stringify({
+                expiresIn: 60 * 60 * 1000, // 1 hour
+                accessType: "view",
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            throw new Error(
+              `HTTP ${response.status}: ${await response.text()}`,
+            );
+          }
+
+          const result = await response.json();
+
+          if (result.success) {
+            resultDiv.innerHTML = `
+                        <div class="success">✅ Signed URL generated successfully!</div>
+                        <div><strong>URL:</strong> ${result.signedUrl.url}</div>
+                        <div><strong>Expires:</strong> ${result.signedUrl.expiresAt}</div>
+                        <div><strong>Media:</strong> ${result.media.filename} (${result.media.mimeType})</div>
+                    `;
+
+            // Load the video
+            video.src = result.signedUrl.url;
+            video.load();
+          } else {
+            resultDiv.innerHTML = `<div class="error">❌ Failed: ${
+              result.message || "Unknown error"
+            }</div>`;
+          }
+        } catch (error) {
+          resultDiv.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+          console.error("Signed URL test error:", error);
+        }
+      }
+
+      async function checkSystemStatus() {
+        const resultDiv = document.getElementById("statusResult");
+
+        try {
+          resultDiv.innerHTML = "<div>🔄 Checking backend connection...</div>";
+
+          // Test basic API connectivity
+          const response = await fetch(`${API_BASE}/auth/me`, {
+            headers: {
+              Authorization: `Bearer ${getAuthToken()}`,
+            },
+          });
+
+          if (response.ok) {
+            const user = await response.json();
+            resultDiv.innerHTML = `
+                        <div class="success">✅ Backend connected successfully!</div>
+                        <div><strong>Server:</strong> http://localhost:5001</div>
+                        <div><strong>User:</strong> ${
+                          user.user?.name || "Unknown"
+                        }</div>
+                    `;
+          } else if (response.status === 401) {
+            resultDiv.innerHTML = `
+                        <div class="error">❌ Authentication failed (401)</div>
+                        <div>You may need to login first or check your token</div>
+                    `;
+          } else {
+            throw new Error(`HTTP ${response.status}`);
+          }
+        } catch (error) {
+          resultDiv.innerHTML = `
+                    <div class="error">❌ Backend connection failed</div>
+                    <div>Error: ${error.message}</div>
+                    <div>Make sure the backend server is running on http://localhost:5001</div>
+                `;
+          console.error("System status error:", error);
+        }
+      }
+
+      // Auto-check system status on load
+      window.addEventListener("load", checkSystemStatus);
+    </script>
+  </body>
+</html>

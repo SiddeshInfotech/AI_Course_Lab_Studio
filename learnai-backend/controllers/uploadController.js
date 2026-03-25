@@ -9,6 +9,14 @@ import {
     getMediaCount,
     getStorageUsed,
 } from "../models/mediaModel.js";
+import {
+    generateSignedMediaUrl,
+    generateWatermarkedUrl,
+    verifySignedMediaUrl,
+    revokeSignedUrl,
+    incrementDownloadCount,
+    isUrlRevoked
+} from "../utils/signedUrlService.js";
 
 // Max file size: 100MB (adjust as needed)
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -146,20 +154,35 @@ export const uploadMultipleFiles = async (req, res) => {
     }
 };
 
-// GET /api/media/:id — get/stream media file (public for content delivery)
+// GET /api/media/:id — get/stream media file (protected - requires authentication)
 export const getMedia = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const media = await getMediaWithData(id);
+
+        // Media and authorization already validated by mediaAuthMiddleware
+        const media = req.media || await getMediaWithData(id);
 
         if (!media) {
             return res.status(404).json({ message: "Media not found" });
         }
 
+        // Add security headers
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("X-Frame-Options", "DENY");
+        res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+
         // Set appropriate headers
         res.setHeader("Content-Type", media.mimeType);
         res.setHeader("Content-Length", media.size);
-        res.setHeader("Content-Disposition", `inline; filename="${media.filename}"`);
+
+        // Set download filename based on access type
+        const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+        res.setHeader("Content-Disposition", `${disposition}; filename="${media.filename}"`);
+
+        // Add watermark info for watermarked content
+        if (req.accessType === 'watermarked' || req.query.watermark === 'true') {
+            res.setHeader("X-Watermark", `User-${req.user.userId}-${Date.now()}`);
+        }
 
         // Handle range requests for video streaming
         const range = req.headers.range;
@@ -181,6 +204,10 @@ export const getMedia = async (req, res) => {
 
         // Send full file
         res.send(Buffer.from(media.data));
+
+        // Log access for audit purposes
+        console.log(`Media access: User ${req.user.userId} accessed media ${id} (${req.accessType || 'direct'})`);
+
     } catch (error) {
         console.error("Get media error:", error);
         res.status(500).json({ message: "Internal server error" });
@@ -301,3 +328,209 @@ function formatBytes(bytes) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
+
+// ===============================
+// ENHANCED SECURITY FEATURES
+// ===============================
+
+/**
+ * POST /api/media/:id/signed-url — Generate signed URL for secure media access
+ */
+export const generateMediaSignedUrl = async (req, res) => {
+    try {
+        const mediaId = parseInt(req.params.id);
+        const userId = req.user.userId;
+        const media = req.media; // Available from mediaAuthMiddleware
+
+        if (!media) {
+            return res.status(404).json({ message: "Media not found" });
+        }
+
+        const {
+            expiresIn = 24 * 60 * 60 * 1000, // 24 hours default
+            allowWatermark = false,
+            maxDownloads = null,
+            accessType = 'view'
+        } = req.body;
+
+        // Get user info for watermarking
+        const userInfo = {
+            username: req.user.username || `User-${userId}`,
+            id: userId
+        };
+
+        // Generate appropriate URL type
+        let signedUrlData;
+        if (allowWatermark && (media.mimeType.startsWith('image/') || media.mimeType.startsWith('video/'))) {
+            signedUrlData = generateWatermarkedUrl(mediaId, userId, userInfo);
+        } else {
+            signedUrlData = generateSignedMediaUrl(mediaId, userId, {
+                expiresIn,
+                allowedIp: req.ip,
+                userAgent: req.headers['user-agent'],
+                maxDownloads,
+                accessType
+            });
+        }
+
+        // Convert relative URL to absolute URL for frontend
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const fullSignedUrl = {
+            ...signedUrlData,
+            url: signedUrlData.url.startsWith('http') ? signedUrlData.url : `${baseUrl}${signedUrlData.url}`
+        };
+
+        res.json({
+            success: true,
+            media: {
+                id: media.id,
+                filename: media.filename,
+                mimeType: media.mimeType,
+                size: media.size
+            },
+            signedUrl: fullSignedUrl,
+            instructions: {
+                usage: "Use the signed URL to access the media file securely",
+                expiration: fullSignedUrl.expiresAt,
+                restrictions: fullSignedUrl.restrictions || {}
+            }
+        });
+
+    } catch (error) {
+        console.error("Generate signed URL error:", error);
+        res.status(500).json({ message: "Failed to generate signed URL" });
+    }
+};
+
+/**
+ * GET /api/media/signed/:token — Access media via signed URL
+ */
+export const getSignedMedia = async (req, res) => {
+    try {
+        const token = req.params.token;
+        const clientIp = req.ip;
+        const userAgent = req.headers['user-agent'];
+
+        // Verify the signed URL
+        const verification = verifySignedMediaUrl(token, {
+            clientIp,
+            userAgent
+        });
+
+        if (!verification.valid) {
+            return res.status(401).json({
+                message: verification.message,
+                error: verification.error
+            });
+        }
+
+        // Check if URL has been revoked
+        if (isUrlRevoked(verification.payload.nonce)) {
+            return res.status(401).json({
+                message: "This signed URL has been revoked"
+            });
+        }
+
+        const { mediaId, userId, accessType } = verification.payload;
+
+        // Get media data
+        const media = await getMediaWithData(mediaId);
+        if (!media) {
+            return res.status(404).json({ message: "Media not found" });
+        }
+
+        // Track download for rate limiting
+        incrementDownloadCount(token);
+
+        // Set security headers
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("X-Frame-Options", "DENY");
+        res.setHeader("Cache-Control", "private, no-cache");
+
+        // Set content headers
+        res.setHeader("Content-Type", media.mimeType);
+        res.setHeader("Content-Length", media.size);
+
+        // Set disposition based on access type
+        const disposition = accessType === 'download' ? 'attachment' : 'inline';
+        res.setHeader("Content-Disposition", `${disposition}; filename="${media.filename}"`);
+
+        // Add watermark header for watermarked content
+        if (accessType === 'watermarked') {
+            res.setHeader("X-Watermark-Info", `User-${userId}-${Date.now()}`);
+        }
+
+        // Handle range requests for video streaming
+        const range = req.headers.range;
+        if (range && media.mimeType.startsWith("video/")) {
+            const parts = range.replace(/bytes=/, "").split("-");
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : media.size - 1;
+            const chunkSize = end - start + 1;
+
+            res.status(206);
+            res.setHeader("Content-Range", `bytes ${start}-${end}/${media.size}`);
+            res.setHeader("Accept-Ranges", "bytes");
+            res.setHeader("Content-Length", chunkSize);
+
+            const chunk = media.data.slice(start, end + 1);
+            return res.send(Buffer.from(chunk));
+        }
+
+        // Send full file
+        res.send(Buffer.from(media.data));
+
+        // Log signed access
+        console.log(`Signed media access: User ${userId} accessed media ${mediaId} via signed URL (${accessType})`);
+
+    } catch (error) {
+        console.error("Signed media access error:", error);
+        res.status(500).json({ message: "Failed to access signed media" });
+    }
+};
+
+/**
+ * DELETE /api/media/signed/:token/revoke — Revoke signed URL access
+ */
+export const revokeMediaAccess = async (req, res) => {
+    try {
+        const token = req.params.token;
+        const userId = req.user.userId;
+        const isAdmin = req.user.isAdmin;
+
+        // Verify token to get payload (even if expired)
+        const verification = verifySignedMediaUrl(token, { ignoreExpiration: true });
+
+        if (!verification.valid && verification.error !== 'URL_EXPIRED') {
+            return res.status(400).json({ message: "Invalid signed URL token" });
+        }
+
+        const tokenUserId = verification.payload?.userId;
+
+        // Check authorization - user can revoke their own URLs, admins can revoke any
+        if (!isAdmin && tokenUserId !== userId) {
+            return res.status(403).json({
+                message: "You can only revoke your own signed URLs"
+            });
+        }
+
+        // Revoke the URL
+        const revoked = await revokeSignedUrl(token);
+
+        if (revoked) {
+            res.json({
+                message: "Signed URL has been revoked successfully",
+                token: token.substring(0, 16) + "..." // Partial token for confirmation
+            });
+
+            // Log revocation
+            console.log(`Signed URL revoked: User ${userId} revoked token for media access`);
+        } else {
+            res.status(400).json({ message: "Failed to revoke signed URL" });
+        }
+
+    } catch (error) {
+        console.error("Revoke signed URL error:", error);
+        res.status(500).json({ message: "Failed to revoke signed URL" });
+    }
+};
