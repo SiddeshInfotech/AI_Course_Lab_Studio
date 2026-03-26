@@ -10,6 +10,7 @@ import {
   Video,
   Target,
   ChevronRight,
+  ChevronLeft,
   Clock,
   BookOpen,
   Code,
@@ -25,8 +26,6 @@ import {
   VolumeX,
   Maximize,
   Minimize,
-  SkipBack,
-  SkipForward,
   Pause,
   Loader,
 } from "lucide-react";
@@ -81,6 +80,7 @@ const DatabaseVideoPlayer = ({
   className?: string;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const maxTimeReachedRef = useRef(0); // Use ref instead of state to avoid re-renders
   const [isLoading, setIsLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -89,6 +89,7 @@ const DatabaseVideoPlayer = ({
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [volume, setVolume] = useState(1);
 
   // Video element event handlers
   useEffect(() => {
@@ -103,6 +104,10 @@ const DatabaseVideoPlayer = ({
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime);
       setProgress((video.currentTime / video.duration) * 100);
+      // Track the furthest point the student has watched using ref
+      if (video.currentTime > maxTimeReachedRef.current) {
+        maxTimeReachedRef.current = video.currentTime;
+      }
     };
 
     const handlePlay = () => setIsPlaying(true);
@@ -118,12 +123,20 @@ const DatabaseVideoPlayer = ({
       setIsLoading(true);
     };
 
+    // Prevent seeking ahead (works for both custom and native fullscreen controls)
+    const handleSeeking = () => {
+      if (video.currentTime > maxTimeReachedRef.current) {
+        video.currentTime = maxTimeReachedRef.current;
+      }
+    };
+
     video.addEventListener("loadeddata", handleLoadedData);
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
     video.addEventListener("error", handleError);
     video.addEventListener("loadstart", handleLoadStart);
+    video.addEventListener("seeking", handleSeeking);
 
     return () => {
       video.removeEventListener("loadeddata", handleLoadedData);
@@ -132,6 +145,34 @@ const DatabaseVideoPlayer = ({
       video.removeEventListener("pause", handlePause);
       video.removeEventListener("error", handleError);
       video.removeEventListener("loadstart", handleLoadStart);
+      video.removeEventListener("seeking", handleSeeking);
+    };
+  }, []);
+
+  // Continuous monitoring for fullscreen native controls
+  // Only enforces limit when user tries to seek beyond maxTimeReached
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let animationId: number;
+    let lastCheckedTime = 0;
+
+    const monitorSeeking = () => {
+      // Only force back if currentTime jumped ahead (seeking attempted)
+      // Don't interfere during normal playback
+      if (video.currentTime > maxTimeReachedRef.current &&
+          Math.abs(video.currentTime - lastCheckedTime) > 0.1) {
+        video.currentTime = maxTimeReachedRef.current;
+      }
+      lastCheckedTime = video.currentTime;
+      animationId = requestAnimationFrame(monitorSeeking);
+    };
+
+    animationId = requestAnimationFrame(monitorSeeking);
+
+    return () => {
+      cancelAnimationFrame(animationId);
     };
   }, []);
 
@@ -150,8 +191,27 @@ const DatabaseVideoPlayer = ({
     const video = videoRef.current;
     if (!video) return;
 
-    video.muted = !video.muted;
-    setIsMuted(video.muted);
+    if (isMuted) {
+      video.muted = false;
+      video.volume = volume;
+      setIsMuted(false);
+    } else {
+      video.muted = true;
+      setIsMuted(true);
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.volume = newVolume;
+    if (newVolume > 0 && isMuted) {
+      video.muted = false;
+      setIsMuted(false);
+    }
   };
 
   const toggleFullscreen = () => {
@@ -178,17 +238,11 @@ const DatabaseVideoPlayer = ({
     const rect = progressBar.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const newTime = (clickX / rect.width) * duration;
-    video.currentTime = newTime;
-  };
 
-  const skip = (seconds: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    video.currentTime = Math.max(
-      0,
-      Math.min(duration, video.currentTime + seconds),
-    );
+    // Only allow seeking to points already watched
+    if (newTime <= maxTimeReachedRef.current) {
+      video.currentTime = newTime;
+    }
   };
 
   const formatTime = (time: number) => {
@@ -220,6 +274,8 @@ const DatabaseVideoPlayer = ({
         preload="metadata"
         playsInline
         onContextMenu={(e) => e.preventDefault()}
+        controlsList="nodownload noplaybackrate"
+        disablePictureInPicture
         key={videoUrl} // Force reload when URL changes
       >
         {videoUrl && <source src={videoUrl} type="video/mp4" />}
@@ -256,23 +312,29 @@ const DatabaseVideoPlayer = ({
 
         {/* Bottom Controls */}
         <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-75 p-4">
-          {/* Progress Bar */}
+          {/* Progress Bar - Locked for forward seeking */}
           <div
-            className="w-full h-1 bg-gray-600 rounded-full cursor-pointer mb-4"
+            className="w-full h-1 bg-gray-600 rounded-full mb-4 group relative"
             onClick={handleProgressClick}
           >
             <div
               className="h-full bg-blue-500 rounded-full"
               style={{ width: `${progress}%` }}
             />
+            {/* Lock icon indicator on progress bar */}
+            <div className="absolute top-1/2 -translate-y-1/2 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Lock className="w-3 h-3 text-yellow-400" />
+            </div>
           </div>
 
           {/* Control Buttons */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
+              {/* Play/Pause Button */}
               <button
                 onClick={togglePlay}
                 className="text-white hover:text-blue-400 transition-colors"
+                title={isPlaying ? "Pause" : "Play"}
               >
                 {isPlaying ? (
                   <Pause className="w-6 h-6" />
@@ -281,23 +343,11 @@ const DatabaseVideoPlayer = ({
                 )}
               </button>
 
-              <button
-                onClick={() => skip(-10)}
-                className="text-white hover:text-blue-400 transition-colors"
-              >
-                <SkipBack className="w-5 h-5" />
-              </button>
-
-              <button
-                onClick={() => skip(10)}
-                className="text-white hover:text-blue-400 transition-colors"
-              >
-                <SkipForward className="w-5 h-5" />
-              </button>
-
+              {/* Mute Button */}
               <button
                 onClick={toggleMute}
                 className="text-white hover:text-blue-400 transition-colors"
+                title={isMuted ? "Unmute" : "Mute"}
               >
                 {isMuted ? (
                   <VolumeX className="w-5 h-5" />
@@ -306,23 +356,36 @@ const DatabaseVideoPlayer = ({
                 )}
               </button>
 
-              <span className="text-white text-sm">
+              {/* Volume Slider */}
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="w-20 h-1 bg-gray-600 rounded-full cursor-pointer accent-blue-500"
+                title="Volume"
+              />
+
+              {/* Time Display */}
+              <span className="text-white text-sm whitespace-nowrap">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleFullscreen}
-                className="text-white hover:text-blue-400 transition-colors"
-              >
-                {isFullscreen ? (
-                  <Minimize className="w-5 h-5" />
-                ) : (
-                  <Maximize className="w-5 h-5" />
-                )}
-              </button>
-            </div>
+            {/* Fullscreen Button */}
+            <button
+              onClick={toggleFullscreen}
+              className="text-white hover:text-blue-400 transition-colors"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            >
+              {isFullscreen ? (
+                <Minimize className="w-5 h-5" />
+              ) : (
+                <Maximize className="w-5 h-5" />
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -595,6 +658,21 @@ function LearningPageContent() {
       }
     } catch (error) {
       console.error("Failed to mark lesson complete:", error);
+    }
+  };
+
+  const handlePreviousLesson = async () => {
+    if (!currentLesson || !courseId) return;
+
+    const allLessons = curriculum.flatMap((section) => section.items);
+    const currentIndex = allLessons.findIndex(
+      (l) => l.id === currentLesson.id,
+    );
+
+    if (currentIndex > 0) {
+      const prevLesson = allLessons[currentIndex - 1];
+      setCurrentLesson(prevLesson);
+      await api.learning.setCurrentLesson(courseId, prevLesson.orderIndex);
     }
   };
 
@@ -888,7 +966,7 @@ function LearningPageContent() {
               </div>
             )}
 
-            {/* ── Below Video: Lesson Title + Next Button + Overview only ── */}
+            {/* ── Below Video: Lesson Title + Prev/Next Buttons + Overview only ── */}
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
                 <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
@@ -900,13 +978,30 @@ function LearningPageContent() {
                   {currentLesson?.duration || "N/A"}
                 </p>
               </div>
-              <button
-                onClick={handleMarkComplete}
-                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-3 shrink-0">
+                {/* Previous Button */}
+                <button
+                  onClick={handlePreviousLesson}
+                  disabled={
+                    curriculum.flatMap((section) => section.items).findIndex(
+                      (l) => l.id === currentLesson?.id,
+                    ) === 0
+                  }
+                  className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
+                  title="Go to previous lesson"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </button>
+                {/* Next Button */}
+                <button
+                  onClick={handleMarkComplete}
+                  className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Overview section */}
