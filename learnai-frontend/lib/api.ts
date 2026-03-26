@@ -209,6 +209,7 @@ export const api = {
           imageUrl: string | null;
           instructor: string;
           duration: string;
+          status?: "Published" | "Draft";
         }>
       >(response);
     },
@@ -226,6 +227,7 @@ export const api = {
         imageUrl: string | null;
         instructor: string;
         duration: string;
+        status?: "Published" | "Draft";
       }>(response);
     },
 
@@ -243,6 +245,7 @@ export const api = {
           imageUrl: string | null;
           instructor: string;
           duration: string;
+          status?: "Published" | "Draft";
         }>
       >(response);
     },
@@ -716,6 +719,19 @@ export const api = {
             duration: string;
             imageUrl: string | null;
           };
+          message: string;
+        }>(response);
+      },
+
+      // Update course status
+      updateStatus: async (id: number, status: "Published" | "Draft") => {
+        const response = await fetch(`${API_BASE_URL}/courses/${id}/status`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ status }),
+        });
+        return parseResponse<{
+          success: boolean;
           message: string;
         }>(response);
       },

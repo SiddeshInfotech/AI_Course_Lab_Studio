@@ -7,6 +7,7 @@ import {
     addCourse,
     editCourse,
     removeCourse,
+    updateCourseStatus,
     enroll,
     listLessons,
     addLesson,
@@ -33,6 +34,7 @@ router.get("/:id", getCourse);
 router.get("/:id/content", authMiddleware, accessLimitMiddleware, getCourseContent);
 router.post("/", authMiddleware, adminMiddleware, addCourse);
 router.put("/:id", authMiddleware, adminMiddleware, editCourse);
+router.patch("/:id/status", authMiddleware, adminMiddleware, updateCourseStatus);
 router.delete("/:id", authMiddleware, adminMiddleware, removeCourse);
 router.post("/:id/enroll", authMiddleware, enroll);
 

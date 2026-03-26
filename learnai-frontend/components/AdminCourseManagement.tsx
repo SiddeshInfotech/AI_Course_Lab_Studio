@@ -29,20 +29,27 @@ interface Course {
   description: string;
   category: string;
   level: string;
-  imageUrl?: string;
+  imageUrl?: string | null;
   instructor: string;
   duration: string;
   createdAt: string;
   updatedAt: string;
   enrollmentCount: number;
   lessonCount: number;
+  status?: "Published" | "Draft";
 }
 
 interface CourseStats {
   totalCourses: number;
   coursesByLevel: Record<string, number>;
   coursesByCategory: Record<string, number>;
-  recentCourses: Course[];
+  recentCourses: Array<{
+    id: number;
+    title: string;
+    category: string;
+    level: string;
+    createdAt: string;
+  }>;
 }
 
 interface CourseEnrollment {
@@ -78,6 +85,7 @@ interface CourseFormData {
   imageUrl: string;
   instructor: string;
   duration: string;
+  status?: "Published" | "Draft";
 }
 
 const INITIAL_FORM_DATA: CourseFormData = {
@@ -88,6 +96,7 @@ const INITIAL_FORM_DATA: CourseFormData = {
   imageUrl: "",
   instructor: "",
   duration: "",
+  status: "Published",
 };
 
 const COURSE_LEVELS = [
@@ -139,7 +148,10 @@ export default function AdminCourseManagement() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
 
   // Enrollment data
-  const [enrollmentData, setEnrollmentData] = useState<CourseEnrollmentData | null>(null);
+  const [
+    enrollmentData,
+    setEnrollmentData,
+  ] = useState<CourseEnrollmentData | null>(null);
   const [enrollmentLoading, setEnrollmentLoading] = useState(false);
 
   // Form state
@@ -241,7 +253,7 @@ export default function AdminCourseManagement() {
         setFormData(INITIAL_FORM_DATA);
       }
     } catch (err) {
-      setError(err.message || "Failed to create course");
+      setError((err as any)?.message || "Failed to create course");
     } finally {
       setFormLoading(false);
     }
@@ -264,7 +276,7 @@ export default function AdminCourseManagement() {
         setFormData(INITIAL_FORM_DATA);
       }
     } catch (err) {
-      setError(err.message || "Failed to update course");
+      setError((err as any)?.message || "Failed to update course");
     } finally {
       setFormLoading(false);
     }
@@ -280,9 +292,23 @@ export default function AdminCourseManagement() {
       setShowDeleteModal(false);
       setSelectedCourse(null);
     } catch (err) {
-      setError(err.message || "Failed to delete course");
+      setError((err as any)?.message || "Failed to delete course");
     } finally {
       setFormLoading(false);
+    }
+  };
+
+  const handleUpdateCourseStatus = async (
+    courseId: number,
+    newStatus: "Published" | "Draft",
+  ) => {
+    try {
+      const result = await api.admin.courses.updateStatus(courseId, newStatus);
+      if (result.success) {
+        await loadDashboardData();
+      }
+    } catch (err) {
+      setError((err as any)?.message || "Failed to update course status");
     }
   };
 
@@ -296,6 +322,7 @@ export default function AdminCourseManagement() {
       imageUrl: course.imageUrl || "",
       instructor: course.instructor,
       duration: course.duration,
+      status: course.status || "Published",
     });
     setShowEditModal(true);
   };
@@ -510,6 +537,9 @@ export default function AdminCourseManagement() {
                   Instructor
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Stats
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -572,6 +602,26 @@ export default function AdminCourseManagement() {
 
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {course.instructor}
+                    </td>
+
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <select
+                        value={course.status || "Published"}
+                        onChange={(e) =>
+                          handleUpdateCourseStatus(
+                            course.id,
+                            e.target.value as "Published" | "Draft",
+                          )
+                        }
+                        className={`px-3 py-1 text-xs font-medium rounded-full border-none focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                          course.status === "Published"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        <option value="Published">Published</option>
+                        <option value="Draft">Draft</option>
+                      </select>
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -818,6 +868,26 @@ export default function AdminCourseManagement() {
                   )}
                 </div>
 
+                {/* Status */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Course Status
+                  </label>
+                  <select
+                    value={formData.status || "Published"}
+                    onChange={(e) =>
+                      handleInputChange(
+                        "status",
+                        e.target.value as "Published" | "Draft",
+                      )
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Published">Published</option>
+                    <option value="Draft">Draft</option>
+                  </select>
+                </div>
+
                 {/* Action Buttons */}
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
@@ -914,7 +984,8 @@ export default function AdminCourseManagement() {
                   </h2>
                   {enrollmentData && (
                     <p className="text-gray-600 mt-1">
-                      {enrollmentData.course.title} • {enrollmentData.totalEnrolled} students enrolled
+                      {enrollmentData.course.title} •{" "}
+                      {enrollmentData.totalEnrolled} students enrolled
                     </p>
                   )}
                 </div>
@@ -929,7 +1000,9 @@ export default function AdminCourseManagement() {
               {enrollmentLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                  <span className="ml-2 text-gray-600">Loading enrollments...</span>
+                  <span className="ml-2 text-gray-600">
+                    Loading enrollments...
+                  </span>
                 </div>
               ) : enrollmentData && enrollmentData.enrollments.length > 0 ? (
                 <div className="overflow-y-auto max-h-[60vh]">
@@ -956,13 +1029,18 @@ export default function AdminCourseManagement() {
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {enrollmentData.enrollments.map((enrollment) => (
-                          <tr key={enrollment.enrollmentId} className="hover:bg-gray-50">
+                          <tr
+                            key={enrollment.enrollmentId}
+                            className="hover:bg-gray-50"
+                          >
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
                                 <div className="flex-shrink-0 h-10 w-10">
                                   <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
                                     <span className="text-sm font-medium text-indigo-800">
-                                      {enrollment.student.name.charAt(0).toUpperCase()}
+                                      {enrollment.student.name
+                                        .charAt(0)
+                                        .toUpperCase()}
                                     </span>
                                   </div>
                                 </div>
@@ -988,15 +1066,18 @@ export default function AdminCourseManagement() {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <span className="text-sm text-gray-900">
-                                {new Date(enrollment.enrolledAt).toLocaleDateString()}
+                                {new Date(
+                                  enrollment.enrolledAt,
+                                ).toLocaleDateString()}
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <span className="text-sm text-gray-900">
                                 {enrollment.student.dob
-                                  ? new Date(enrollment.student.dob).toLocaleDateString()
-                                  : "—"
-                                }
+                                  ? new Date(
+                                      enrollment.student.dob,
+                                    ).toLocaleDateString()
+                                  : "—"}
                               </span>
                             </td>
                           </tr>

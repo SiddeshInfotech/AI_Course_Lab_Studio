@@ -524,6 +524,7 @@ function LearningPageContent() {
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({
     day1: true,
   });
+  const [noCourseAvailable, setNoCourseAvailable] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -535,15 +536,48 @@ function LearningPageContent() {
   useEffect(() => {
     const fetchCourseId = async () => {
       const courseIdParam = searchParams.get("courseId");
+      setNoCourseAvailable(false);
       if (courseIdParam) {
-        setCourseId(parseInt(courseIdParam));
+        // Validate that the course is published when accessed via URL
+        try {
+          const enrolledCourses = await api.courses.getEnrolled();
+          const publishedCourses = enrolledCourses.filter(
+            (course) => course.status !== "Draft",
+          );
+          const course = publishedCourses.find(
+            (c) => c.id === parseInt(courseIdParam),
+          );
+          if (course) {
+            setCourseId(parseInt(courseIdParam));
+            setCourseTitle(course.title);
+          } else {
+            // Course not found or is draft, redirect to first published course
+            if (publishedCourses.length > 0) {
+              setCourseId(publishedCourses[0].id);
+              setCourseTitle(publishedCourses[0].title);
+            } else {
+              setNoCourseAvailable(true);
+              setCourseId(null);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to validate course access:", error);
+        }
       } else {
         // Default to first enrolled course
         try {
           const enrolledCourses = await api.courses.getEnrolled();
-          if (enrolledCourses.length > 0) {
-            setCourseId(enrolledCourses[0].id);
-            setCourseTitle(enrolledCourses[0].title);
+          // Filter out draft courses from student view
+          const publishedCourses = enrolledCourses.filter(
+            (course) => course.status !== "Draft",
+          );
+          if (publishedCourses.length > 0) {
+            setCourseId(publishedCourses[0].id);
+            setCourseTitle(publishedCourses[0].title);
+          } else {
+            // No published courses available
+            setNoCourseAvailable(true);
+            setCourseId(null);
           }
         } catch (error) {
           console.error("Failed to fetch enrolled courses:", error);
@@ -676,7 +710,43 @@ function LearningPageContent() {
     }
   };
 
-  if (isLoading || !isAuthenticated || isLoadingCurriculum) {
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#F8FAFC]">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (noCourseAvailable) {
+    return (
+      <div className="h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center">
+          <div className="mb-6 flex justify-center">
+            <div className="p-4 bg-amber-50 rounded-full">
+              <BookOpen className="w-12 h-12 text-amber-500" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">
+            No Courses Available
+          </h2>
+          <p className="text-slate-600 mb-6">
+            You are not enrolled in any published courses yet. Please check back
+            later or contact your instructor to get enrolled in a course.
+          </p>
+          <button
+            onClick={() => router.push("/ai-dashboard")}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoadingCurriculum) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#F8FAFC]">
         <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />

@@ -115,8 +115,10 @@ export default function AIDashboardPage() {
     null,
   );
   const [isLoadingCourse, setIsLoadingCourse] = useState(true);
-  const [completedLessonOrderIndexes, setCompletedLessonOrderIndexes] =
-    useState<number[]>([]);
+  const [
+    completedLessonOrderIndexes,
+    setCompletedLessonOrderIndexes,
+  ] = useState<number[]>([]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -151,8 +153,12 @@ export default function AIDashboardPage() {
         setIsLoadingCourse(true);
         setCompletedLessonOrderIndexes([]);
         const enrolledCourses = await api.courses.getEnrolled();
-        if (enrolledCourses.length > 0) {
-          const mainCourse = enrolledCourses[0];
+        // Filter out draft courses from student view
+        const publishedCourses = enrolledCourses.filter(
+          (course) => course.status !== "Draft",
+        );
+        if (publishedCourses.length > 0) {
+          const mainCourse = publishedCourses[0];
           const curriculumData = await api.learning.getCurriculum(
             mainCourse.id,
           );
@@ -309,9 +315,8 @@ export default function AIDashboardPage() {
     return completedLessonOrderIndexes.includes(absolutePosition + 1);
   };
 
-  const masteredCount = currentToolNames.filter((name) =>
-    isToolMastered(name),
-  ).length;
+  const masteredCount = currentToolNames.filter((name) => isToolMastered(name))
+    .length;
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -338,7 +343,6 @@ export default function AIDashboardPage() {
                 fill
                 sizes="(max-width: 640px) 160px, (max-width: 768px) 192px, 224px"
                 className="object-contain"
-
               />
             </div>
           </div>

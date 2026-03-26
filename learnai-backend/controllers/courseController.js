@@ -523,3 +523,42 @@ export const getCourseEnrollments = async (req, res) => {
         res.status(500).json({ message: "Failed to get course enrollments" });
     }
 };
+
+// PATCH /api/courses/:id/status — update course status (admin only)
+export const updateCourseStatus = async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const { status } = req.body;
+
+        if (isNaN(id)) {
+            return res.status(400).json({ message: "Invalid course ID" });
+        }
+
+        // Validate status
+        const validStatuses = ['Published', 'Draft'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({
+                message: "Invalid status",
+                validStatuses: validStatuses
+            });
+        }
+
+        // Check if course exists
+        const course = await getCourseById(id);
+        if (!course) {
+            return res.status(404).json({ message: "Course not found" });
+        }
+
+        // Update course status
+        const updatedCourse = await updateCourse(id, { status });
+
+        res.json({
+            success: true,
+            course: updatedCourse,
+            message: `Course status updated to ${status}`
+        });
+    } catch (error) {
+        console.error("Update course status error:", error);
+        res.status(500).json({ message: "Failed to update course status" });
+    }
+};

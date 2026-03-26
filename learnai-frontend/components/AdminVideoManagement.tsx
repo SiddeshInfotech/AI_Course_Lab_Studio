@@ -340,7 +340,7 @@ export default function AdminVideoManagement() {
       resetModals();
       loadVideoData();
     } catch (err) {
-      setError(err.message || "Failed to add external video");
+      setError((err as any)?.message || "Failed to add external video");
     } finally {
       setFormLoading(false);
     }
@@ -355,7 +355,7 @@ export default function AdminVideoManagement() {
       resetModals();
       loadVideoData();
     } catch (err) {
-      setError(err.message || "Failed to delete video");
+      setError((err as any)?.message || "Failed to delete video");
     } finally {
       setFormLoading(false);
     }
@@ -374,7 +374,7 @@ export default function AdminVideoManagement() {
       resetModals();
       loadVideoData();
     } catch (err) {
-      setError(err.message || "Failed to link video");
+      setError((err as any)?.message || "Failed to link video");
     } finally {
       setFormLoading(false);
     }
