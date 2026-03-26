@@ -859,6 +859,454 @@ export default function OptimizedAdminVideoManagement() {
           )}
         </>
       )}
+
+      {/* ============================================ */}
+      {/* MODALS - Upload, External, Link, Delete */}
+      {/* ============================================ */}
+      
+      {/* Upload Modal */}
+      {activeModal === "upload" && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Upload Video</h3>
+              <button 
+                onClick={() => { setActiveModal(null); resetUploadStates(); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              {/* File Input */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Video File
+                </label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setUploadFile(file);
+                      if (!uploadTitle) {
+                        setUploadTitle(file.name.replace(/\.[^/.]+$/, ""));
+                      }
+                    }
+                  }}
+                  className="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100
+                  "
+                />
+                {uploadFile && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    Selected: {uploadFile.name} ({formatBytes(uploadFile.size)})
+                  </p>
+                )}
+              </div>
+
+              {/* Video Title */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video Title (optional)
+                </label>
+                <input
+                  type="text"
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="Enter video title"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Course Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Course
+                </label>
+                <select
+                  value={uploadCourse}
+                  onChange={(e) => {
+                    setUploadCourse(e.target.value === "" ? "" : Number(e.target.value));
+                    setUploadLesson("");
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a course</option>
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Lesson Selection */}
+              {uploadCourse && lessons.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Lesson
+                  </label>
+                  <select
+                    value={uploadLesson}
+                    onChange={(e) => setUploadLesson(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select a lesson (optional)</option>
+                    {lessons.map((lesson) => (
+                      <option key={lesson.id} value={lesson.id}>
+                        Lesson {lesson.orderIndex}: {lesson.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Replace Existing */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="replaceExisting"
+                  checked={replaceExisting}
+                  onChange={(e) => setReplaceExisting(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="replaceExisting" className="text-sm text-gray-700">
+                  Replace existing video if lesson already has one
+                </label>
+              </div>
+
+              {/* Upload Progress */}
+              {uploading && (
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
+                    <span className="text-blue-700">Uploading and processing video...</span>
+                  </div>
+                  {chunkedUpload.status !== 'idle' && (
+                    <div className="mt-2">
+                      <div className="w-full bg-blue-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all"
+                          style={{ width: `${chunkedUpload.progress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-blue-600 mt-1">
+                        {chunkedUpload.status === 'uploading' && `Uploading: ${chunkedUpload.uploadedChunks}/${chunkedUpload.totalChunks} chunks`}
+                        {chunkedUpload.status === 'assembling' && 'Processing video...'}
+                        {chunkedUpload.status === 'completed' && 'Complete!'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => { setActiveModal(null); resetUploadStates(); }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+                disabled={uploading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={!uploadFile || uploading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {uploading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    Upload Video
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* External Video Modal */}
+      {activeModal === "external" && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Add External Video</h3>
+              <button 
+                onClick={() => { setActiveModal(null); resetExternalStates(); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              {/* Video URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video URL
+                </label>
+                <input
+                  type="url"
+                  value={externalUrl}
+                  onChange={(e) => setExternalUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              {/* Video Title */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Title (optional)
+                </label>
+                <input
+                  type="text"
+                  value={externalTitle}
+                  onChange={(e) => setExternalTitle(e.target.value)}
+                  placeholder="Enter video title"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description (optional)
+                </label>
+                <textarea
+                  value={externalDescription}
+                  onChange={(e) => setExternalDescription(e.target.value)}
+                  placeholder="Enter video description"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              {/* Course Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Course
+                </label>
+                <select
+                  value={externalCourse}
+                  onChange={(e) => {
+                    setExternalCourse(e.target.value === "" ? "" : Number(e.target.value));
+                    setExternalLesson("");
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Select a course</option>
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Lesson Selection */}
+              {externalCourse && lessons.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Lesson
+                  </label>
+                  <select
+                    value={externalLesson}
+                    onChange={(e) => setExternalLesson(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">Select a lesson</option>
+                    {lessons.map((lesson) => (
+                      <option key={lesson.id} value={lesson.id}>
+                        Lesson {lesson.orderIndex}: {lesson.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => { setActiveModal(null); resetExternalStates(); }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddExternal}
+                disabled={!externalUrl || !externalLesson}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Add External Video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link Video Modal */}
+      {activeModal === "link" && selectedVideo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Link Video to Lesson</h3>
+              <button 
+                onClick={() => { setActiveModal(null); setSelectedVideo(null); resetLinkStates(); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              {/* Selected Video Info */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-sm text-gray-600">Selected Video:</p>
+                <p className="font-medium text-gray-900">{selectedVideo.title}</p>
+                {selectedVideo.size && (
+                  <p className="text-xs text-gray-500">{formatBytes(selectedVideo.size)}</p>
+                )}
+              </div>
+
+              {/* Course Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Course
+                </label>
+                <select
+                  value={uploadCourse}
+                  onChange={(e) => {
+                    setUploadCourse(e.target.value === "" ? "" : Number(e.target.value));
+                    setLinkLesson("");
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a course</option>
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Lesson Selection */}
+              {uploadCourse && lessons.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Lesson
+                  </label>
+                  <select
+                    value={linkLesson}
+                    onChange={(e) => setLinkLesson(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select a lesson</option>
+                    {lessons.map((lesson) => (
+                      <option key={lesson.id} value={lesson.id} disabled={lesson.hasVideo}>
+                        Lesson {lesson.orderIndex}: {lesson.title} {lesson.hasVideo ? '(has video)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Replace Existing */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="linkReplaceExisting"
+                  checked={replaceExisting}
+                  onChange={(e) => setReplaceExisting(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="linkReplaceExisting" className="text-sm text-gray-700">
+                  Replace existing video if lesson already has one
+                </label>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => { setActiveModal(null); setSelectedVideo(null); resetLinkStates(); }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLinkVideo}
+                disabled={!linkLesson}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <Link className="w-4 h-4" />
+                Link Video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Video Modal */}
+      {activeModal === "delete" && selectedVideo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                </div>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">
+                Delete Video
+              </h3>
+              <p className="text-gray-600 text-center mb-4">
+                Are you sure you want to delete <strong>"{selectedVideo.title}"</strong>?
+                This action cannot be undone.
+              </p>
+              
+              {selectedVideo.lesson && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-yellow-800">
+                    <strong>Warning:</strong> This video is linked to a lesson. 
+                    Deleting it will remove the video from the lesson.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => { setActiveModal(null); setSelectedVideo(null); }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteVideo}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

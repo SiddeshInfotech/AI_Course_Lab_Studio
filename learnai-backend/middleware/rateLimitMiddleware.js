@@ -27,6 +27,20 @@ const RATE_LIMITS = {
         windowMs: 60 * 1000,
         maxRequests: 100,        // 100 requests per minute for admins
         message: "Admin rate limit exceeded."
+    },
+
+    // Video upload rate limiting (prevent abuse)
+    video_upload: {
+        windowMs: 60 * 60 * 1000, // 1 hour
+        maxRequests: 10,          // 10 uploads per hour per user
+        message: "Too many video uploads. Please wait before uploading more videos."
+    },
+
+    // Admin video upload limits (higher)
+    admin_video_upload: {
+        windowMs: 60 * 60 * 1000, // 1 hour
+        maxRequests: 50,          // 50 uploads per hour for admins
+        message: "Admin upload rate limit exceeded."
     }
 };
 
@@ -45,7 +59,18 @@ const createMediaRateLimitMiddleware = (limitType = 'media_access') => {
 
             // Get rate limit config (admins get higher limits)
             const user = await getUserById(userId);
-            const config = user?.isAdmin ? RATE_LIMITS.admin_media_access : RATE_LIMITS[limitType];
+
+            // Determine which config to use based on type and admin status
+            let config;
+            if (user?.isAdmin) {
+                if (limitType === 'video_upload') {
+                    config = RATE_LIMITS.admin_video_upload;
+                } else {
+                    config = RATE_LIMITS.admin_media_access;
+                }
+            } else {
+                config = RATE_LIMITS[limitType];
+            }
 
             if (!config) {
                 return next(); // No rate limiting for unknown limit types

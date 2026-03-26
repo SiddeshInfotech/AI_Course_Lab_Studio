@@ -93,8 +93,9 @@ export const getAllVideos = async (req, res) => {
                         compressionRatio: video.compressionRatio,
                         isCompressed: video.isCompressed,
                         processingTime: video.processingTime,
-                        url: `/api/media/${video.id}`,
-                        thumbnailUrl: `/api/admin/videos/${video.id}/thumbnail`,
+                        url: video.url || `/api/media/${video.id}`,
+                        thumbnailUrl: video.thumbnailUrl,
+                        storageType: video.storageType,
                         createdAt: video.createdAt,
                         lesson,
                         course,
@@ -288,8 +289,9 @@ export const uploadVideo = async (req, res) => {
                 compressionRatio: media.compressionRatio,
                 isCompressed: media.isCompressed,
                 processingTime: media.processingTime,
-                url: `/api/media/${media.id}`,
-                thumbnailUrl: `/api/admin/videos/${media.id}/thumbnail`,
+                url: media.url || `/api/media/${media.id}`,
+                storageType: media.storageType,
+                thumbnailUrl: media.thumbnailUrl,
                 createdAt: media.createdAt,
                 lesson,
                 course,
@@ -306,8 +308,34 @@ export const uploadVideo = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error("Upload video error:", error);
-        res.status(500).json({ message: "Failed to upload video" });
+        console.error("❌ Upload video error:", error.message);
+        console.error("Stack:", error.stack);
+
+        // Provide detailed error information for debugging
+        const errorMessage = error.message || "Failed to upload video";
+        const isStorageError = errorMessage.includes('MinIO') || errorMessage.includes('storage') || errorMessage.includes('S3');
+        const isProcessingError = errorMessage.includes('ffmpeg') || errorMessage.includes('compression') || errorMessage.includes('process');
+        const isBufferError = errorMessage.includes('buffer') || errorMessage.includes('empty');
+
+        let statusCode = 500;
+        let detailedMessage = errorMessage;
+
+        if (isBufferError) {
+            statusCode = 400;
+            detailedMessage = `Invalid video file: ${errorMessage}`;
+        } else if (isStorageError) {
+            statusCode = 503;
+            detailedMessage = `Storage service error: ${errorMessage}. Please try again.`;
+        } else if (isProcessingError) {
+            statusCode = 400;
+            detailedMessage = `Video processing error: ${errorMessage}. The video format may not be supported.`;
+        }
+
+        res.status(statusCode).json({
+            message: detailedMessage,
+            error: errorMessage,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
@@ -365,7 +393,19 @@ export const addExternalVideo = async (req, res) => {
         });
     } catch (error) {
         console.error("Add external video error:", error);
-        res.status(500).json({ message: "Failed to add external video" });
+
+        // Provide more specific error messages
+        if (error.code === 'P2025') {
+            return res.status(404).json({
+                message: "The lesson was not found or has been deleted",
+                error: 'LESSON_NOT_FOUND'
+            });
+        }
+
+        res.status(500).json({
+            message: "Failed to add external video. Please try again.",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -535,8 +575,9 @@ export const linkVideoToLesson = async (req, res) => {
             video: {
                 id: media.id,
                 filename: media.filename,
-                url: `/api/media/${media.id}`,
-                thumbnailUrl: `/api/admin/videos/${media.id}/thumbnail`,
+                url: media.url || `/api/media/${media.id}`,
+                storageType: media.storageType,
+                thumbnailUrl: media.thumbnailUrl,
                 lesson,
                 course,
             }
@@ -547,7 +588,7 @@ export const linkVideoToLesson = async (req, res) => {
     }
 };
 
-// GET /api/admin/videos/:id/thumbnail — serve video thumbnail
+// GET /api/admin/videos/:id/thumbnail — serve video thumbnail (redirect to S3 URL)
 export const getVideoThumbnail = async (req, res) => {
     try {
         const videoId = parseInt(req.params.id);
@@ -558,19 +599,12 @@ export const getVideoThumbnail = async (req, res) => {
 
         const media = await getMediaThumbnail(videoId);
 
-        if (!media || !media.thumbnail) {
+        if (!media || !media.thumbnailUrl) {
             return res.status(404).json({ message: "Thumbnail not found" });
         }
 
-        // Set appropriate headers for image
-        res.set({
-            'Content-Type': 'image/jpeg',
-            'Content-Length': media.thumbnail.length,
-            'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
-            'ETag': `"thumbnail-${videoId}"`,
-        });
-
-        res.send(media.thumbnail);
+        // Redirect to S3 thumbnail URL
+        res.redirect(302, media.thumbnailUrl);
     } catch (error) {
         console.error("Get video thumbnail error:", error);
         res.status(500).json({ message: "Failed to get video thumbnail" });
@@ -721,8 +755,9 @@ export const completeChunkedUpload = async (req, res) => {
                 compressionRatio: media.compressionRatio,
                 isCompressed: media.isCompressed,
                 processingTime: media.processingTime,
-                url: `/api/media/${media.id}`,
-                thumbnailUrl: `/api/admin/videos/${media.id}/thumbnail`,
+                url: media.url || `/api/media/${media.id}`,
+                storageType: media.storageType,
+                thumbnailUrl: media.thumbnailUrl,
                 createdAt: media.createdAt,
                 lesson,
                 course,

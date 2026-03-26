@@ -70,7 +70,7 @@ interface CurrentLesson {
   orderIndex: number;
 }
 
-// Enhanced video player component for database-stored videos
+// Enhanced video player component for direct file playback from uploads folder
 const DatabaseVideoPlayer = ({
   videoUrl,
   title,
@@ -89,89 +89,8 @@ const DatabaseVideoPlayer = ({
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const [urlExpiresAt, setUrlExpiresAt] = useState<string | null>(null);
 
-  // Extract media ID from video URL (e.g., "/api/media/123" → "123")
-  const getMediaIdFromUrl = (url: string): number | null => {
-    const match = url.match(/\/api\/media\/(\d+)/);
-    return match ? parseInt(match[1]) : null;
-  };
-
-  // Get signed URL for secure video access
-  const getSignedUrl = async (mediaId: number): Promise<string | null> => {
-    try {
-      console.log(`🔄 Getting signed URL for media ID: ${mediaId}`);
-      const result = await api.admin.getSignedUrl(mediaId);
-      console.log(`✅ Signed URL received:`, result);
-      setUrlExpiresAt(result.expiresAt);
-      return result.url;
-    } catch (error) {
-      console.error("❌ Failed to get signed URL:", error);
-      setError("Failed to load video. Authentication error.");
-      return null;
-    }
-  };
-
-  // Check if URL needs refresh (expires soon)
-  const needsUrlRefresh = (): boolean => {
-    if (!urlExpiresAt) return true;
-    const expiryTime = new Date(urlExpiresAt).getTime();
-    const currentTime = Date.now();
-    // Refresh if expires within 5 minutes
-    return (expiryTime - currentTime) < 5 * 60 * 1000;
-  };
-
-  // Initialize or refresh the signed URL
-  const initializeVideoUrl = async () => {
-    console.log(`🎬 Initializing video URL: ${videoUrl}`);
-    const mediaId = getMediaIdFromUrl(videoUrl);
-    if (!mediaId) {
-      console.error(`❌ Invalid video URL format: ${videoUrl}`);
-      setError("Invalid video URL format");
-      setIsLoading(false);
-      return;
-    }
-
-    console.log(`📹 Extracted media ID: ${mediaId}`);
-
-    if (!signedUrl || needsUrlRefresh()) {
-      console.log(`🔄 Need to get new signed URL (current: ${signedUrl ? 'exists' : 'none'})`);
-      setIsLoading(true);
-      const newSignedUrl = await getSignedUrl(mediaId);
-      if (newSignedUrl) {
-        console.log(`✅ Setting signed URL: ${newSignedUrl}`);
-        setSignedUrl(newSignedUrl);
-        setError(null);
-      } else {
-        console.error(`❌ Failed to get signed URL for media ${mediaId}`);
-      }
-      setIsLoading(false);
-    } else {
-      console.log(`✅ Using existing signed URL: ${signedUrl}`);
-    }
-  };
-
-  // Initialize signed URL on mount and when videoUrl changes
-  useEffect(() => {
-    initializeVideoUrl();
-  }, [videoUrl]);
-
-  // Auto-refresh URL before expiry
-  useEffect(() => {
-    if (!urlExpiresAt) return;
-
-    const expiryTime = new Date(urlExpiresAt).getTime();
-    const currentTime = Date.now();
-    const timeUntilRefresh = Math.max(0, (expiryTime - currentTime) - 5 * 60 * 1000); // Refresh 5 min before expiry
-
-    const timeout = setTimeout(() => {
-      initializeVideoUrl();
-    }, timeUntilRefresh);
-
-    return () => clearTimeout(timeout);
-  }, [urlExpiresAt]);
-
+  // Video element event handlers
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -189,19 +108,14 @@ const DatabaseVideoPlayer = ({
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
 
-    const handleError = () => {
-      // If URL might be expired, try refreshing it
-      if (needsUrlRefresh()) {
-        console.log("Video error - attempting URL refresh");
-        initializeVideoUrl();
-      } else {
-        setError("Failed to load video. Please try again.");
-        setIsLoading(false);
-      }
+    const handleError = (e: Event) => {
+      console.error("❌ Video playback error:", (e.target as any)?.error);
+      setError("Failed to load video. Please try again.");
+      setIsLoading(false);
     };
 
     const handleLoadStart = () => {
-      if (signedUrl) setIsLoading(true);
+      setIsLoading(true);
     };
 
     video.addEventListener("loadeddata", handleLoadedData);
@@ -219,7 +133,7 @@ const DatabaseVideoPlayer = ({
       video.removeEventListener("error", handleError);
       video.removeEventListener("loadstart", handleLoadStart);
     };
-  }, [signedUrl]); // Re-attach listeners when signed URL changes
+  }, []);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -306,23 +220,21 @@ const DatabaseVideoPlayer = ({
         preload="metadata"
         playsInline
         onContextMenu={(e) => e.preventDefault()}
-        key={signedUrl} // Force reload when URL changes
+        key={videoUrl} // Force reload when URL changes
       >
-        {signedUrl && (
-          <source src={signedUrl} type="video/mp4" />
-        )}
+        {videoUrl && <source src={videoUrl} type="video/mp4" />}
         <p className="text-white text-center p-4">
           Your browser doesn't support video playback.
         </p>
       </video>
 
       {/* Loading Overlay */}
-      {(isLoading || !signedUrl) && !error && (
+      {(isLoading || !videoUrl) && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
           <div className="text-center">
             <Loader className="w-8 h-8 text-white mx-auto mb-2 animate-spin" />
             <p className="text-white text-sm">
-              {!signedUrl ? "Preparing video..." : "Loading video..."}
+              {!videoUrl ? "Preparing video..." : "Loading video..."}
             </p>
           </div>
         </div>
@@ -481,7 +393,9 @@ const SmartVideoPlayer = ({
 }) => {
   // Detect video type
   const isDataBaseVideo =
-    videoUrl.startsWith("/api/media/") || videoUrl.includes("/api/media/");
+    videoUrl.startsWith("/uploads/") ||
+    videoUrl.startsWith("http://") && videoUrl.includes("/uploads/") ||
+    videoUrl.startsWith("https://") && videoUrl.includes("/uploads/");
   const isYouTubeVideo =
     videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be");
 

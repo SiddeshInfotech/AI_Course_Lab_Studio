@@ -193,14 +193,22 @@ model Media {
   id               Int       @id @default(autoincrement())
   filename         String    // original filename
   mimeType         String    // e.g. "video/mp4", "image/png"
-  size             Int       // compressed file size in bytes
-  data             Bytes     // binary file data stored in database
+  size             Int       // file size in bytes
+  
+  // Storage configuration
+  storageType      String    @default("minio") // 'local', 'minio', 's3'
+  storageKey       String?   // Storage key (S3/MinIO key or local path)
+  url              String?   // Public/signed URL for accessing the file
+  
   uploadedBy       Int?      // admin who uploaded
   entityType       String?   // "course", "lesson" - what this media belongs to
   entityId         Int?      // ID of the related entity
 
+  // Video thumbnail
+  thumbnailStorageKey String? // Storage key for thumbnail
+  thumbnailUrl        String? // Public URL for thumbnail
+  
   // Video compression and optimization fields
-  thumbnail        Bytes?    // video thumbnail data (JPEG format)
   originalSize     Int?      // original file size before compression
   compressionRatio Float?    // compression ratio (0.0 to 1.0)
   processingTime   Int?      // processing time in milliseconds

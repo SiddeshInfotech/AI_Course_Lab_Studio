@@ -60,21 +60,41 @@ const mediaAuthMiddleware = async (req, res, next) => {
                     });
                 }
             }
-        }
-        // OWNERSHIP VALIDATION: User can access their own uploaded content
-        else if (media.uploadedBy === userId) {
-            req.accessType = 'owner';
-        }
-        // PUBLIC CONTENT: No entity association and not owned by user
-        else {
-            return res.status(403).json({
-                message: "Access denied. This content is not publicly accessible."
-            });
+
+            req.media = media;
+            req.accessType = 'authorized';
+            return next();
         }
 
-        req.media = media;
-        req.accessType = 'authorized';
-        next();
+        // CHECK LESSON VIDEO LINK: Media might be linked via lesson.videoUrl
+        // This handles cases where entityType/entityId isn't set but the video is used in a lesson
+        const linkedLesson = await checkMediaLinkedToLesson(mediaId);
+        if (linkedLesson) {
+            const hasLessonAccess = await checkCourseEnrollment(userId, linkedLesson.courseId);
+            if (hasLessonAccess) {
+                req.media = media;
+                req.accessType = 'authorized';
+                req.linkedLesson = linkedLesson;
+                return next();
+            } else {
+                return res.status(403).json({
+                    message: "Access denied. You need to be enrolled in the course to access this video.",
+                    courseId: linkedLesson.courseId
+                });
+            }
+        }
+
+        // OWNERSHIP VALIDATION: User can access their own uploaded content
+        if (media.uploadedBy === userId) {
+            req.media = media;
+            req.accessType = 'owner';
+            return next();
+        }
+
+        // PUBLIC CONTENT: No entity association and not owned by user
+        return res.status(403).json({
+            message: "Access denied. This content is not publicly accessible."
+        });
 
     } catch (error) {
         console.error("Media authorization error:", error);
@@ -108,6 +128,21 @@ async function checkEntityAuthorization(userId, entityType, entityId) {
 async function checkCourseEnrollment(userId, courseId) {
     const enrollment = await getEnrollment(userId, courseId);
     return !!enrollment;
+}
+
+/**
+ * Check if media is linked to any lesson via videoUrl field
+ * This handles videos that don't have entityType/entityId set directly
+ */
+async function checkMediaLinkedToLesson(mediaId) {
+    const mediaUrl = `/api/media/${mediaId}`;
+
+    const lesson = await prisma.lesson.findFirst({
+        where: { videoUrl: mediaUrl },
+        select: { id: true, title: true, courseId: true }
+    });
+
+    return lesson;
 }
 
 /**

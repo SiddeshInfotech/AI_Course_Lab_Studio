@@ -8,6 +8,7 @@ import {
     updateMediaEntity,
     getMediaCount,
     getStorageUsed,
+    getSignedMediaUrl,
 } from "../models/mediaModel.js";
 import {
     generateSignedMediaUrl,
@@ -17,11 +18,10 @@ import {
     incrementDownloadCount,
     isUrlRevoked
 } from "../utils/signedUrlService.js";
+import { getSignedUrl, getPublicUrl } from "../config/storage.js";
 
-// Max file size: 100MB (adjust as needed)
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
-// Allowed MIME types
 const ALLOWED_TYPES = {
     video: ["video/mp4", "video/webm", "video/ogg", "video/quicktime"],
     image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
@@ -30,7 +30,6 @@ const ALLOWED_TYPES = {
 
 const ALL_ALLOWED_TYPES = [...ALLOWED_TYPES.video, ...ALLOWED_TYPES.image, ...ALLOWED_TYPES.document];
 
-// POST /api/admin/upload — upload a file
 export const uploadFile = async (req, res) => {
     try {
         if (!req.file) {
@@ -39,14 +38,12 @@ export const uploadFile = async (req, res) => {
 
         const file = req.file;
 
-        // Validate file size
         if (file.size > MAX_FILE_SIZE) {
             return res.status(400).json({
                 message: `File too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`,
             });
         }
 
-        // Validate MIME type
         if (!ALL_ALLOWED_TYPES.includes(file.mimetype)) {
             return res.status(400).json({
                 message: "File type not allowed",
@@ -80,18 +77,39 @@ export const uploadFile = async (req, res) => {
             filename: media.filename,
             mimeType: media.mimeType,
             size: media.size,
+            url: media.url,
+            thumbnailUrl: media.thumbnailUrl,
             entityType: media.entityType,
             entityId: media.entityId,
             createdAt: media.createdAt,
-            url: `/api/media/${media.id}`,
         });
     } catch (error) {
-        console.error("Upload error:", error);
-        res.status(500).json({ message: "Internal server error" });
+        console.error("❌ Upload error:", error.message);
+        console.error("Stack:", error.stack);
+
+        const errorMessage = error.message || "Failed to upload file";
+        const isStorageError = errorMessage.includes('MinIO') || errorMessage.includes('storage') || errorMessage.includes('S3');
+        const isBufferError = errorMessage.includes('buffer') || errorMessage.includes('empty');
+
+        let statusCode = 500;
+        let detailedMessage = errorMessage;
+
+        if (isBufferError) {
+            statusCode = 400;
+            detailedMessage = `Invalid file: ${errorMessage}`;
+        } else if (isStorageError) {
+            statusCode = 503;
+            detailedMessage = `Storage service error: ${errorMessage}. Please try again.`;
+        }
+
+        res.status(statusCode).json({
+            message: detailedMessage,
+            error: errorMessage,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
-// POST /api/admin/upload/multiple — upload multiple files
 export const uploadMultipleFiles = async (req, res) => {
     try {
         if (!req.files || req.files.length === 0) {
@@ -103,7 +121,6 @@ export const uploadMultipleFiles = async (req, res) => {
         const errors = [];
 
         for (const file of req.files) {
-            // Validate file size
             if (file.size > MAX_FILE_SIZE) {
                 errors.push({
                     filename: file.originalname,
@@ -112,7 +129,6 @@ export const uploadMultipleFiles = async (req, res) => {
                 continue;
             }
 
-            // Validate MIME type
             if (!ALL_ALLOWED_TYPES.includes(file.mimetype)) {
                 errors.push({
                     filename: file.originalname,
@@ -134,7 +150,7 @@ export const uploadMultipleFiles = async (req, res) => {
                     filename: media.filename,
                     mimeType: media.mimeType,
                     size: media.size,
-                    url: `/api/media/${media.id}`,
+                    url: media.url,
                 });
             } catch (err) {
                 errors.push({
@@ -149,64 +165,59 @@ export const uploadMultipleFiles = async (req, res) => {
             errors: errors.length > 0 ? errors : undefined,
         });
     } catch (error) {
-        console.error("Multiple upload error:", error);
-        res.status(500).json({ message: "Internal server error" });
+        console.error("❌ Multiple upload error:", error.message);
+        console.error("Stack:", error.stack);
+
+        const errorMessage = error.message || "Failed to upload files";
+        const isStorageError = errorMessage.includes('MinIO') || errorMessage.includes('storage') || errorMessage.includes('S3');
+
+        let statusCode = 500;
+        let detailedMessage = errorMessage;
+
+        if (isStorageError) {
+            statusCode = 503;
+            detailedMessage = `Storage service error: ${errorMessage}. Please try again.`;
+        }
+
+        res.status(statusCode).json({
+            message: detailedMessage,
+            error: errorMessage,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
-// GET /api/media/:id — get/stream media file (protected - requires authentication)
 export const getMedia = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-
-        // Media and authorization already validated by mediaAuthMiddleware
-        const media = req.media || await getMediaWithData(id);
+        const media = await getMediaById(id);
 
         if (!media) {
             return res.status(404).json({ message: "Media not found" });
         }
 
-        // Add security headers
+        const signedData = await getSignedMediaUrl(id, 3600);
+
+        if (!signedData) {
+            return res.status(404).json({ message: "Media file not found" });
+        }
+
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("X-Frame-Options", "DENY");
         res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
-
-        // Set appropriate headers
-        res.setHeader("Content-Type", media.mimeType);
+        res.setHeader("Content-Type", signedData.mimeType);
         res.setHeader("Content-Length", media.size);
 
-        // Set download filename based on access type
         const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
         res.setHeader("Content-Disposition", `${disposition}; filename="${media.filename}"`);
 
-        // Add watermark info for watermarked content
         if (req.accessType === 'watermarked' || req.query.watermark === 'true') {
             res.setHeader("X-Watermark", `User-${req.user.userId}-${Date.now()}`);
         }
 
-        // Handle range requests for video streaming
-        const range = req.headers.range;
-        if (range && media.mimeType.startsWith("video/")) {
-            const parts = range.replace(/bytes=/, "").split("-");
-            const start = parseInt(parts[0], 10);
-            const end = parts[1] ? parseInt(parts[1], 10) : media.size - 1;
-            const chunkSize = end - start + 1;
+        console.log(`Media access: User ${req.user.userId} accessed media ${id} via signed URL`);
 
-            res.status(206);
-            res.setHeader("Content-Range", `bytes ${start}-${end}/${media.size}`);
-            res.setHeader("Accept-Ranges", "bytes");
-            res.setHeader("Content-Length", chunkSize);
-
-            // Send chunk of data
-            const chunk = media.data.slice(start, end + 1);
-            return res.send(Buffer.from(chunk));
-        }
-
-        // Send full file
-        res.send(Buffer.from(media.data));
-
-        // Log access for audit purposes
-        console.log(`Media access: User ${req.user.userId} accessed media ${id} (${req.accessType || 'direct'})`);
+        res.redirect(302, signedData.url);
 
     } catch (error) {
         console.error("Get media error:", error);
@@ -214,7 +225,6 @@ export const getMedia = async (req, res) => {
     }
 };
 
-// GET /api/admin/media — list all media (admin only)
 export const listMedia = async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 50;
@@ -229,7 +239,7 @@ export const listMedia = async (req, res) => {
         res.json({
             media: media.map((m) => ({
                 ...m,
-                url: `/api/media/${m.id}`,
+                url: m.url,
             })),
             pagination: {
                 total,
@@ -245,7 +255,6 @@ export const listMedia = async (req, res) => {
     }
 };
 
-// GET /api/admin/media/:id — get media info (admin only)
 export const getMediaInfo = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
@@ -257,7 +266,7 @@ export const getMediaInfo = async (req, res) => {
 
         res.json({
             ...media,
-            url: `/api/media/${media.id}`,
+            url: media.url,
         });
     } catch (error) {
         console.error("Get media info error:", error);
@@ -265,7 +274,6 @@ export const getMediaInfo = async (req, res) => {
     }
 };
 
-// DELETE /api/admin/media/:id — delete media (admin only)
 export const removeMedia = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
@@ -283,7 +291,6 @@ export const removeMedia = async (req, res) => {
     }
 };
 
-// PATCH /api/admin/media/:id/assign — assign media to an entity
 export const assignMedia = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
@@ -302,7 +309,6 @@ export const assignMedia = async (req, res) => {
     }
 };
 
-// GET /api/admin/media/entity/:type/:id — get media for an entity
 export const getEntityMedia = async (req, res) => {
     try {
         const { type, id } = req.params;
@@ -311,7 +317,7 @@ export const getEntityMedia = async (req, res) => {
         res.json(
             media.map((m) => ({
                 ...m,
-                url: `/api/media/${m.id}`,
+                url: m.url,
             }))
         );
     } catch (error) {
@@ -320,7 +326,6 @@ export const getEntityMedia = async (req, res) => {
     }
 };
 
-// Helper: format bytes to human readable
 function formatBytes(bytes) {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
@@ -329,37 +334,28 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-// ===============================
-// ENHANCED SECURITY FEATURES
-// ===============================
-
-/**
- * POST /api/media/:id/signed-url — Generate signed URL for secure media access
- */
 export const generateMediaSignedUrl = async (req, res) => {
     try {
         const mediaId = parseInt(req.params.id);
         const userId = req.user.userId;
-        const media = req.media; // Available from mediaAuthMiddleware
+        const media = await getMediaById(mediaId);
 
         if (!media) {
             return res.status(404).json({ message: "Media not found" });
         }
 
         const {
-            expiresIn = 24 * 60 * 60 * 1000, // 24 hours default
+            expiresIn = 24 * 60 * 60 * 1000,
             allowWatermark = false,
             maxDownloads = null,
             accessType = 'view'
         } = req.body;
 
-        // Get user info for watermarking
         const userInfo = {
             username: req.user.username || `User-${userId}`,
             id: userId
         };
 
-        // Generate appropriate URL type
         let signedUrlData;
         if (allowWatermark && (media.mimeType.startsWith('image/') || media.mimeType.startsWith('video/'))) {
             signedUrlData = generateWatermarkedUrl(mediaId, userId, userInfo);
@@ -373,12 +369,11 @@ export const generateMediaSignedUrl = async (req, res) => {
             });
         }
 
-        // Convert relative URL to absolute URL for frontend
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const fullSignedUrl = {
-            ...signedUrlData,
-            url: signedUrlData.url.startsWith('http') ? signedUrlData.url : `${baseUrl}${signedUrlData.url}`
-        };
+        const storageSignedData = await getSignedMediaUrl(mediaId, expiresIn / 1000);
+
+        if (!storageSignedData) {
+            return res.status(404).json({ message: "Media file not found in storage" });
+        }
 
         res.json({
             success: true,
@@ -388,11 +383,16 @@ export const generateMediaSignedUrl = async (req, res) => {
                 mimeType: media.mimeType,
                 size: media.size
             },
-            signedUrl: fullSignedUrl,
+            signedUrl: {
+                url: storageSignedData.url,
+                expiresAt: new Date(Date.now() + expiresIn).toISOString(),
+                expiresIn: expiresIn / 1000,
+                token: signedUrlData.token,
+            },
             instructions: {
                 usage: "Use the signed URL to access the media file securely",
-                expiration: fullSignedUrl.expiresAt,
-                restrictions: fullSignedUrl.restrictions || {}
+                expiration: new Date(Date.now() + expiresIn).toISOString(),
+                restrictions: signedUrlData.restrictions || {}
             }
         });
 
@@ -402,16 +402,12 @@ export const generateMediaSignedUrl = async (req, res) => {
     }
 };
 
-/**
- * GET /api/media/signed/:token — Access media via signed URL
- */
 export const getSignedMedia = async (req, res) => {
     try {
         const token = req.params.token;
         const clientIp = req.ip;
         const userAgent = req.headers['user-agent'];
 
-        // Verify the signed URL
         const verification = verifySignedMediaUrl(token, {
             clientIp,
             userAgent
@@ -424,7 +420,6 @@ export const getSignedMedia = async (req, res) => {
             });
         }
 
-        // Check if URL has been revoked
         if (isUrlRevoked(verification.payload.nonce)) {
             return res.status(401).json({
                 message: "This signed URL has been revoked"
@@ -433,55 +428,26 @@ export const getSignedMedia = async (req, res) => {
 
         const { mediaId, userId, accessType } = verification.payload;
 
-        // Get media data
-        const media = await getMediaWithData(mediaId);
-        if (!media) {
+        const signedData = await getSignedMediaUrl(mediaId, 3600);
+
+        if (!signedData) {
             return res.status(404).json({ message: "Media not found" });
         }
 
-        // Track download for rate limiting
         incrementDownloadCount(token);
 
-        // Set security headers
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("X-Frame-Options", "DENY");
         res.setHeader("Cache-Control", "private, no-cache");
+        res.setHeader("Content-Type", signedData.mimeType);
 
-        // Set content headers
-        res.setHeader("Content-Type", media.mimeType);
-        res.setHeader("Content-Length", media.size);
-
-        // Set disposition based on access type
-        const disposition = accessType === 'download' ? 'attachment' : 'inline';
-        res.setHeader("Content-Disposition", `${disposition}; filename="${media.filename}"`);
-
-        // Add watermark header for watermarked content
         if (accessType === 'watermarked') {
             res.setHeader("X-Watermark-Info", `User-${userId}-${Date.now()}`);
         }
 
-        // Handle range requests for video streaming
-        const range = req.headers.range;
-        if (range && media.mimeType.startsWith("video/")) {
-            const parts = range.replace(/bytes=/, "").split("-");
-            const start = parseInt(parts[0], 10);
-            const end = parts[1] ? parseInt(parts[1], 10) : media.size - 1;
-            const chunkSize = end - start + 1;
-
-            res.status(206);
-            res.setHeader("Content-Range", `bytes ${start}-${end}/${media.size}`);
-            res.setHeader("Accept-Ranges", "bytes");
-            res.setHeader("Content-Length", chunkSize);
-
-            const chunk = media.data.slice(start, end + 1);
-            return res.send(Buffer.from(chunk));
-        }
-
-        // Send full file
-        res.send(Buffer.from(media.data));
-
-        // Log signed access
         console.log(`Signed media access: User ${userId} accessed media ${mediaId} via signed URL (${accessType})`);
+
+        res.redirect(302, signedData.url);
 
     } catch (error) {
         console.error("Signed media access error:", error);
@@ -489,16 +455,12 @@ export const getSignedMedia = async (req, res) => {
     }
 };
 
-/**
- * DELETE /api/media/signed/:token/revoke — Revoke signed URL access
- */
 export const revokeMediaAccess = async (req, res) => {
     try {
         const token = req.params.token;
         const userId = req.user.userId;
         const isAdmin = req.user.isAdmin;
 
-        // Verify token to get payload (even if expired)
         const verification = verifySignedMediaUrl(token, { ignoreExpiration: true });
 
         if (!verification.valid && verification.error !== 'URL_EXPIRED') {
@@ -507,30 +469,27 @@ export const revokeMediaAccess = async (req, res) => {
 
         const tokenUserId = verification.payload?.userId;
 
-        // Check authorization - user can revoke their own URLs, admins can revoke any
         if (!isAdmin && tokenUserId !== userId) {
             return res.status(403).json({
                 message: "You can only revoke your own signed URLs"
             });
         }
 
-        // Revoke the URL
         const revoked = await revokeSignedUrl(token);
 
         if (revoked) {
             res.json({
                 message: "Signed URL has been revoked successfully",
-                token: token.substring(0, 16) + "..." // Partial token for confirmation
+                token: token.substring(0, 16) + "..."
             });
 
-            // Log revocation
             console.log(`Signed URL revoked: User ${userId} revoked token for media access`);
         } else {
             res.status(400).json({ message: "Failed to revoke signed URL" });
         }
 
     } catch (error) {
-        console.error("Revoke signed URL error:", error);
+        console.error("Revoke media access error:", error);
         res.status(500).json({ message: "Failed to revoke signed URL" });
     }
 };

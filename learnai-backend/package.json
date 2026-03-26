@@ -19,6 +19,8 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1016.0",
+    "@aws-sdk/s3-request-presigner": "^3.1016.0",
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@prisma/client": "^5.14.0",
@@ -26,15 +28,20 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "ffmpeg": "^0.0.4",
+    "ffmpeg-static": "^5.3.0",
     "fluent-ffmpeg": "^2.1.3",
     "jsonwebtoken": "^9.0.3",
+    "minio": "^8.0.7",
     "multer": "^2.1.1",
+    "multer-s3": "^3.0.1",
     "node-cache": "^5.1.2",
     "node-stream-zip": "^1.15.0",
     "pg": "^8.20.0",
     "prisma": "^5.14.0",
     "redis": "^5.11.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

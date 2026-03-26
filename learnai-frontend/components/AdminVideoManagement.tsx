@@ -126,12 +126,22 @@ export default function AdminVideoManagement() {
   });
 
   const [linkForm, setLinkForm] = useState({
+    courseId: "" as string,
     lessonId: "" as string,
     replaceExisting: false,
   });
 
   const [formLoading, setFormLoading] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Upload progress state
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState<
+    "idle" | "uploading" | "processing" | "done" | "error"
+  >("idle");
+
+  // Link modal lessons (separate from upload/external modal lessons)
+  const [linkLessons, setLinkLessons] = useState<Lesson[]>([]);
 
   // Load data
   useEffect(() => {
@@ -210,19 +220,101 @@ export default function AdminVideoManagement() {
     if (!validateUploadForm()) return;
 
     setFormLoading(true);
+    setUploadProgress(0);
+    setUploadStatus("uploading");
+    setError(null);
+
     try {
-      await api.admin.videos.upload({
-        videoFile: uploadForm.videoFile!,
-        ...(uploadForm.courseId && { courseId: parseInt(uploadForm.courseId) }),
-        ...(uploadForm.lessonId && { lessonId: parseInt(uploadForm.lessonId) }),
-        ...(uploadForm.title && { title: uploadForm.title }),
-        replaceExisting: uploadForm.replaceExisting,
+      // Use XMLHttpRequest for progress tracking
+      const formData = new FormData();
+      formData.append("video", uploadForm.videoFile!);
+      if (uploadForm.courseId) formData.append("courseId", uploadForm.courseId);
+      if (uploadForm.lessonId) formData.append("lessonId", uploadForm.lessonId);
+      if (uploadForm.title) formData.append("title", uploadForm.title);
+      if (uploadForm.replaceExisting)
+        formData.append("replaceExisting", "true");
+
+      const token = localStorage.getItem("token");
+      const API_BASE_URL =
+        process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api";
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        // Set timeout for large uploads (10 minutes)
+        xhr.timeout = 10 * 60 * 1000;
+
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round(
+              (event.loaded / event.total) * 100,
+            );
+            setUploadProgress(percentComplete);
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadStatus("processing");
+            setTimeout(() => {
+              setUploadStatus("done");
+              resolve();
+            }, 500);
+          } else {
+            // Handle HTTP errors
+            let errorMessage = "Upload failed";
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              errorMessage = errorData.message || errorMessage;
+            } catch {
+              // If response is not JSON, use status text
+              if (xhr.status === 413) {
+                errorMessage = "File too large. Maximum size is 500MB.";
+              } else if (xhr.status === 401) {
+                errorMessage = "Authentication failed. Please log in again.";
+              } else if (xhr.status === 403) {
+                errorMessage = "You don't have permission to upload videos.";
+              } else if (xhr.status === 429) {
+                errorMessage = "Too many uploads. Please wait before trying again.";
+              } else if (xhr.status >= 500) {
+                errorMessage = "Server error. Please try again later.";
+              }
+            }
+            reject(new Error(errorMessage));
+          }
+        });
+
+        xhr.addEventListener("error", () => {
+          // Network errors (CORS, server down, no internet, etc.)
+          console.error("XHR network error during upload");
+          reject(new Error("Unable to connect to server. Please check your internet connection and try again."));
+        });
+
+        xhr.addEventListener("timeout", () => {
+          reject(new Error("Upload timed out. Please try with a smaller file or check your connection."));
+        });
+
+        xhr.addEventListener("abort", () => {
+          reject(new Error("Upload was cancelled."));
+        });
+
+        xhr.open("POST", `${API_BASE_URL}/admin/videos/upload`);
+        if (token) {
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        }
+        xhr.send(formData);
       });
 
       resetModals();
       loadVideoData();
-    } catch (err) {
-      setError(err.message || "Failed to upload video");
+    } catch (err: unknown) {
+      setUploadStatus("error");
+      // Properly extract error message
+      const errorMessage = err instanceof Error
+        ? err.message
+        : "Failed to upload video. Please try again.";
+      console.error("Upload error:", err);
+      setError(errorMessage);
     } finally {
       setFormLoading(false);
     }
@@ -318,6 +410,7 @@ export default function AdminVideoManagement() {
 
   const validateLinkForm = (): boolean => {
     const errors: Record<string, string> = {};
+    if (!linkForm.courseId) errors.courseId = "Please select a course";
     if (!linkForm.lessonId) errors.lessonId = "Please select a lesson";
 
     setFormErrors(errors);
@@ -330,10 +423,28 @@ export default function AdminVideoManagement() {
     setShowDeleteModal(true);
   };
 
-  const openLinkModal = (video: Video) => {
+  const openLinkModal = async (video: Video) => {
     if (video.type !== "uploaded") return;
     setSelectedVideo(video);
+    setLinkForm({ courseId: "", lessonId: "", replaceExisting: false });
+    setLinkLessons([]);
     setShowLinkModal(true);
+  };
+
+  // Load lessons for link modal when course changes
+  const handleLinkCourseChange = async (courseId: string) => {
+    setLinkForm((prev) => ({ ...prev, courseId, lessonId: "" }));
+    if (courseId) {
+      try {
+        const data = await api.admin.videos.getLessons(parseInt(courseId));
+        setLinkLessons(data.lessons);
+      } catch (err) {
+        console.error("Failed to load lessons:", err);
+        setLinkLessons([]);
+      }
+    } else {
+      setLinkLessons([]);
+    }
   };
 
   const resetModals = () => {
@@ -357,10 +468,14 @@ export default function AdminVideoManagement() {
       description: "",
     });
     setLinkForm({
+      courseId: "",
       lessonId: "",
       replaceExisting: false,
     });
+    setLinkLessons([]);
     setFormErrors({});
+    setUploadProgress(0);
+    setUploadStatus("idle");
   };
 
   // File size formatter
@@ -801,6 +916,48 @@ export default function AdminVideoManagement() {
                   </label>
                 </div>
 
+                {/* Upload Progress */}
+                {(uploadStatus === "uploading" || uploadStatus === "processing") && (
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-blue-800">
+                        {uploadStatus === "uploading"
+                          ? `Uploading... ${uploadProgress}%`
+                          : "Processing video..."}
+                      </span>
+                      {uploadStatus === "processing" && (
+                        <RefreshCw className="w-4 h-4 text-blue-600 animate-spin" />
+                      )}
+                    </div>
+                    <div className="w-full bg-blue-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          uploadStatus === "processing"
+                            ? "bg-blue-500 animate-pulse w-full"
+                            : "bg-blue-600"
+                        }`}
+                        style={{
+                          width: uploadStatus === "uploading" ? `${uploadProgress}%` : "100%",
+                        }}
+                      />
+                    </div>
+                    {uploadStatus === "processing" && (
+                      <p className="mt-2 text-xs text-blue-600">
+                        Compressing and optimizing video for streaming...
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {uploadStatus === "error" && (
+                  <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                    <p className="text-sm text-red-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      {error || "Upload failed. Please try again."}
+                    </p>
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
@@ -1062,6 +1219,32 @@ export default function AdminVideoManagement() {
               </p>
 
               <div className="space-y-4">
+                {/* Course Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Course *
+                  </label>
+                  <select
+                    value={linkForm.courseId}
+                    onChange={(e) => handleLinkCourseChange(e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
+                      formErrors.courseId ? "border-red-300" : "border-gray-300"
+                    }`}
+                  >
+                    <option value="">Select Course</option>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.title}
+                      </option>
+                    ))}
+                  </select>
+                  {formErrors.courseId && (
+                    <p className="text-sm text-red-600 mt-1">
+                      {formErrors.courseId}
+                    </p>
+                  )}
+                </div>
+
                 {/* Lesson Selection */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1075,12 +1258,13 @@ export default function AdminVideoManagement() {
                         lessonId: e.target.value,
                       }))
                     }
+                    disabled={!linkForm.courseId}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
                       formErrors.lessonId ? "border-red-300" : "border-gray-300"
-                    }`}
+                    } ${!linkForm.courseId ? "bg-gray-100" : ""}`}
                   >
                     <option value="">Select Lesson</option>
-                    {lessons.map((lesson) => (
+                    {linkLessons.map((lesson) => (
                       <option key={lesson.id} value={lesson.id}>
                         {lesson.orderIndex}. {lesson.title}{" "}
                         {lesson.hasVideo ? "(Has Video)" : ""}

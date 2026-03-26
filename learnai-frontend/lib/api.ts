@@ -27,10 +27,29 @@ const getPayloadMessage = (payload: unknown, fallback: string): string => {
   return fallback;
 };
 
-const clearClientAuthOnUnauthorized = (status: number) => {
+const getErrorCode = (payload: unknown): string | undefined => {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const error = (payload as { error?: unknown }).error;
+    if (typeof error === "string") return error;
+  }
+  return undefined;
+};
+
+const clearClientAuthOnUnauthorized = (status: number, errorCode?: string) => {
   if (status !== 401 || typeof window === "undefined") return;
-  localStorage.removeItem("token");
-  localStorage.removeItem("user");
+  // Only clear on SESSION_EXPIRED or other critical errors
+  if (
+    errorCode === "SESSION_EXPIRED" ||
+    errorCode === "INVALID_TOKEN_FORMAT" ||
+    !errorCode // Fallback to clear if no error code provided
+  ) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("user");
+    if (errorCode) {
+      console.warn(`🔴 Auth cleared due to ${errorCode}`);
+    }
+  }
 };
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
@@ -47,7 +66,14 @@ const parseResponse = async <T>(response: Response): Promise<T> => {
 
     if (!response.ok) {
       const message = getPayloadMessage(data, fallback);
-      clearClientAuthOnUnauthorized(response.status);
+      const errorCode = getErrorCode(data);
+      clearClientAuthOnUnauthorized(response.status, errorCode);
+
+      // Log token-related errors for debugging
+      if (response.status === 401 && errorCode) {
+        console.warn(`Authentication error: ${message} (Error: ${errorCode})`);
+      }
+
       throw new ApiResponseError(message, response.status, data);
     }
     return (data ?? ({} as T)) as T;
@@ -712,9 +738,12 @@ export const api = {
 
       // Get enrolled students for a specific course
       enrollments: async (courseId: number) => {
-        const response = await fetch(`${API_BASE_URL}/courses/admin/enrollments/${courseId}`, {
-          headers: getAuthHeaders(),
-        });
+        const response = await fetch(
+          `${API_BASE_URL}/courses/admin/enrollments/${courseId}`,
+          {
+            headers: getAuthHeaders(),
+          },
+        );
         return parseResponse<{
           success: boolean;
           course: {
@@ -770,9 +799,12 @@ export const api = {
 
     // Get detailed user information including enrolled courses
     getUserDetailed: async (id: number) => {
-      const response = await fetch(`${API_BASE_URL}/admin/users/${id}/detailed`, {
-        headers: getAuthHeaders(),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/admin/users/${id}/detailed`,
+        {
+          headers: getAuthHeaders(),
+        },
+      );
       return parseResponse<{
         id: number;
         name: string;
@@ -863,14 +895,17 @@ export const api = {
 
     // Get signed URL for secure media access (for video streaming)
     getSignedUrl: async (mediaId: number) => {
-      const response = await fetch(`${API_BASE_URL}/media/${mediaId}/signed-url`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          expiresIn: 60 * 60 * 1000, // 1 hour
-          accessType: 'view'
-        }),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/media/${mediaId}/signed-url`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            expiresIn: 60 * 60 * 1000, // 1 hour
+            accessType: "view",
+          }),
+        },
+      );
       const result = await parseResponse<{
         success: boolean;
         signedUrl: {
@@ -901,13 +936,15 @@ export const api = {
         limit?: number;
         courseId?: number;
         lessonId?: number;
-        type?: 'uploaded' | 'external' | 'all';
+        type?: "uploaded" | "external" | "all";
       }) => {
         const queryParams = new URLSearchParams();
         if (params?.page) queryParams.append("page", params.page.toString());
         if (params?.limit) queryParams.append("limit", params.limit.toString());
-        if (params?.courseId) queryParams.append("courseId", params.courseId.toString());
-        if (params?.lessonId) queryParams.append("lessonId", params.lessonId.toString());
+        if (params?.courseId)
+          queryParams.append("courseId", params.courseId.toString());
+        if (params?.lessonId)
+          queryParams.append("lessonId", params.lessonId.toString());
         if (params?.type) queryParams.append("type", params.type);
 
         const url = `${API_BASE_URL}/admin/videos${
@@ -920,7 +957,7 @@ export const api = {
           success: boolean;
           videos: Array<{
             id: number | string;
-            type: 'uploaded' | 'external';
+            type: "uploaded" | "external";
             title: string;
             mimeType?: string;
             size?: number;
@@ -979,8 +1016,10 @@ export const api = {
       }) => {
         const formData = new FormData();
         formData.append("video", data.videoFile);
-        if (data.courseId) formData.append("courseId", data.courseId.toString());
-        if (data.lessonId) formData.append("lessonId", data.lessonId.toString());
+        if (data.courseId)
+          formData.append("courseId", data.courseId.toString());
+        if (data.lessonId)
+          formData.append("lessonId", data.lessonId.toString());
         if (data.title) formData.append("title", data.title);
         if (data.replaceExisting) formData.append("replaceExisting", "true");
 
@@ -994,7 +1033,7 @@ export const api = {
           success: boolean;
           video: {
             id: number;
-            type: 'uploaded';
+            type: "uploaded";
             filename: string;
             mimeType: string;
             size: number;
@@ -1026,11 +1065,14 @@ export const api = {
         mimeType: string;
         totalSize: number;
       }) => {
-        const response = await fetch(`${API_BASE_URL}/admin/videos/chunk/init`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(data),
-        });
+        const response = await fetch(
+          `${API_BASE_URL}/admin/videos/chunk/init`,
+          {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+          },
+        );
         return parseResponse<{
           success: boolean;
           upload: {
@@ -1057,7 +1099,7 @@ export const api = {
             method: "POST",
             headers: getAuthOnlyHeaders(),
             body: formData,
-          }
+          },
         );
 
         return parseResponse<{
@@ -1091,14 +1133,14 @@ export const api = {
               title: data.title,
               replaceExisting: data.replaceExisting,
             }),
-          }
+          },
         );
 
         return parseResponse<{
           success: boolean;
           video: {
             id: number;
-            type: 'uploaded';
+            type: "uploaded";
             filename: string;
             mimeType: string;
             size: number;
@@ -1129,7 +1171,7 @@ export const api = {
           `${API_BASE_URL}/admin/videos/chunk/${sessionId}/status`,
           {
             headers: getAuthHeaders(),
-          }
+          },
         );
         return parseResponse<{
           success: boolean;
@@ -1152,7 +1194,7 @@ export const api = {
           {
             method: "DELETE",
             headers: getAuthHeaders(),
-          }
+          },
         );
         return parseResponse<{
           success: boolean;
@@ -1183,7 +1225,7 @@ export const api = {
           success: boolean;
           video: {
             id: string;
-            type: 'external';
+            type: "external";
             title: string;
             url: string;
             lesson: any;
@@ -1194,11 +1236,14 @@ export const api = {
       },
 
       // Delete video
-      delete: async (id: number | string, type: 'uploaded' | 'external') => {
-        const response = await fetch(`${API_BASE_URL}/admin/videos/${id}?type=${type}`, {
-          method: "DELETE",
-          headers: getAuthHeaders(),
-        });
+      delete: async (id: number | string, type: "uploaded" | "external") => {
+        const response = await fetch(
+          `${API_BASE_URL}/admin/videos/${id}?type=${type}`,
+          {
+            method: "DELETE",
+            headers: getAuthHeaders(),
+          },
+        );
         return parseResponse<{
           success: boolean;
           message: string;
@@ -1207,15 +1252,21 @@ export const api = {
       },
 
       // Link existing uploaded video to lesson
-      linkToLesson: async (videoId: number, data: {
-        lessonId: number;
-        replaceExisting?: boolean;
-      }) => {
-        const response = await fetch(`${API_BASE_URL}/admin/videos/${videoId}/link`, {
-          method: "PUT",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(data),
-        });
+      linkToLesson: async (
+        videoId: number,
+        data: {
+          lessonId: number;
+          replaceExisting?: boolean;
+        },
+      ) => {
+        const response = await fetch(
+          `${API_BASE_URL}/admin/videos/${videoId}/link`,
+          {
+            method: "PUT",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(data),
+          },
+        );
         return parseResponse<{
           success: boolean;
           message: string;
@@ -1249,9 +1300,12 @@ export const api = {
 
       // Get lessons for a course
       getLessons: async (courseId: number) => {
-        const response = await fetch(`${API_BASE_URL}/admin/videos/courses/${courseId}/lessons`, {
-          headers: getAuthHeaders(),
-        });
+        const response = await fetch(
+          `${API_BASE_URL}/admin/videos/courses/${courseId}/lessons`,
+          {
+            headers: getAuthHeaders(),
+          },
+        );
         return parseResponse<{
           success: boolean;
           course: {
@@ -1264,7 +1318,7 @@ export const api = {
             orderIndex: number;
             duration: string | null;
             hasVideo: boolean;
-            videoType: 'uploaded' | 'external' | null;
+            videoType: "uploaded" | "external" | null;
           }>;
         }>(response);
       },

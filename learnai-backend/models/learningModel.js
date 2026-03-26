@@ -11,9 +11,19 @@ const safeJsonParse = (jsonStr, defaultValue = []) => {
   }
 };
 
-// Convert YouTube URLs to proper embed format for ReactPlayer and iframes
-const convertYouTubeUrl = (url) => {
+/**
+ * Process video URL - converts YouTube URLs to embed format
+ * and preserves internal /api/media/ URLs as-is
+ * @param {string} url - The video URL
+ * @returns {string} - Processed URL
+ */
+const processVideoUrl = (url) => {
   if (!url) return url;
+
+  // Internal media URLs - return as-is (they use signed URLs on frontend)
+  if (url.startsWith("/api/media/") || url.includes("/api/media/")) {
+    return url;
+  }
 
   try {
     // Extract video ID from different YouTube URL formats
@@ -100,7 +110,7 @@ export const getCourseCurriculum = async (userId, courseId) => {
       active: isActive,
       description: lesson.description,
       content: lesson.content,
-      videoUrl: convertYouTubeUrl(lesson.videoUrl),
+      videoUrl: processVideoUrl(lesson.videoUrl),
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
@@ -135,7 +145,7 @@ export const getCourseCurriculum = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
-        videoUrl: convertYouTubeUrl(currentLesson.videoUrl),
+        videoUrl: processVideoUrl(currentLesson.videoUrl),
         objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }
@@ -171,7 +181,7 @@ export const getLessonDetails = async (userId, lessonId) => {
     title: lesson.title,
     description: lesson.description,
     content: lesson.content,
-    videoUrl: convertYouTubeUrl(lesson.videoUrl),
+    videoUrl: processVideoUrl(lesson.videoUrl),
     duration: lesson.duration,
     section: lesson.section,
     sectionTitle: lesson.sectionTitle,
@@ -370,7 +380,7 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
       active: isActive,
       description: lesson.description,
       content: lesson.content,
-      videoUrl: convertYouTubeUrl(lesson.videoUrl),
+      videoUrl: processVideoUrl(lesson.videoUrl),
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
@@ -445,7 +455,7 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
-        videoUrl: convertYouTubeUrl(currentLesson.videoUrl),
+        videoUrl: processVideoUrl(currentLesson.videoUrl),
         objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }

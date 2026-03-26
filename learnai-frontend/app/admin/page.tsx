@@ -520,8 +520,14 @@ export default function AdminDashboard() {
 
   const openEditStudentModal = async (student: UserData) => {
     // Check if this is a temporary/placeholder user (created locally without API)
-    if (typeof student.id !== "number" || student.id < 1 || student.id > 2147483647) {
-      window.alert("Cannot edit this student. Please refresh the page and try again.");
+    if (
+      typeof student.id !== "number" ||
+      student.id < 1 ||
+      student.id > 2147483647
+    ) {
+      window.alert(
+        "Cannot edit this student. Please refresh the page and try again.",
+      );
       return;
     }
 
@@ -540,7 +546,7 @@ export default function AdminDashboard() {
       setStudentForm({
         fullName: detailedUser.name,
         rollNumber: detailedUser.rollNumber || "",
-        dob: detailedUser.dob ? detailedUser.dob.split('T')[0] : "", // Convert to YYYY-MM-DD format
+        dob: detailedUser.dob ? detailedUser.dob.split("T")[0] : "", // Convert to YYYY-MM-DD format
         email: detailedUser.email || "",
         selectedCourses: detailedUser.enrolledCourseIds || [],
       });
@@ -552,7 +558,7 @@ export default function AdminDashboard() {
       setStudentForm({
         fullName: student.name,
         rollNumber: student.rollNumber || "",
-        dob: student.dob ? student.dob.split('T')[0] : "",
+        dob: student.dob ? student.dob.split("T")[0] : "",
         email: student.email || "",
         selectedCourses: [],
       });
@@ -602,7 +608,7 @@ export default function AdminDashboard() {
         const response = await api.admin.createUser({
           name: fullName,
           username: generatedId,
-          email: email || undefined,
+          email: email,
           password,
           rollNumber: studentForm.rollNumber.trim() || undefined,
           dob: studentForm.dob || undefined,
@@ -614,7 +620,9 @@ export default function AdminDashboard() {
         await loadUsers();
 
         window.alert(
-          `Student created successfully!\nStudent ID: ${response.username}\nPassword (DOB): ${password || "N/A"}\n${
+          `Student created successfully!\nStudent ID: ${
+            response.username
+          }\nPassword (DOB): ${password || "N/A"}\n${
             studentForm.selectedCourses.length > 0
               ? `Enrolled in ${studentForm.selectedCourses.length} course(s)`
               : "No courses selected"
@@ -634,7 +642,9 @@ export default function AdminDashboard() {
               : student,
           ),
         );
-        window.alert("Student updated (local update - API integration pending).");
+        window.alert(
+          "Student updated (local update - API integration pending).",
+        );
       }
 
       setStudentModalOpen(false);
@@ -1111,13 +1121,11 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-4 py-3.5">
                           <span className="text-xs text-slate-600">
-                            {u._count?.enrollments ? (
-                              u._count.enrollments === 1
+                            {u._count?.enrollments
+                              ? u._count.enrollments === 1
                                 ? "1 Course"
                                 : `${u._count.enrollments} Courses`
-                            ) : (
-                              "No Courses"
-                            )}
+                              : "No Courses"}
                           </span>
                         </td>
                         <td className="px-4 py-3.5">
@@ -1451,13 +1459,17 @@ export default function AdminDashboard() {
                           >
                             <input
                               type="checkbox"
-                              checked={studentForm.selectedCourses.includes(course.id)}
+                              checked={studentForm.selectedCourses.includes(
+                                course.id,
+                              )}
                               onChange={(e) => {
                                 setStudentForm((prev) => ({
                                   ...prev,
                                   selectedCourses: e.target.checked
                                     ? [...prev.selectedCourses, course.id]
-                                    : prev.selectedCourses.filter(id => id !== course.id)
+                                    : prev.selectedCourses.filter(
+                                        (id) => id !== course.id,
+                                      ),
                                 }));
                               }}
                               className="w-3.5 h-3.5 text-indigo-600 bg-white border-slate-300 rounded focus:ring-indigo-500 focus:ring-2"
@@ -1476,7 +1488,8 @@ export default function AdminDashboard() {
                     )}
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Select courses this student will be enrolled in ({studentForm.selectedCourses.length} selected)
+                    Select courses this student will be enrolled in (
+                    {studentForm.selectedCourses.length} selected)
                   </p>
                 </div>
                 <div>
