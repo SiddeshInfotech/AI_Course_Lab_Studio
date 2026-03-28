@@ -238,25 +238,6 @@ const getAvatarInitial = (name?: string | null, username?: string | null) => {
   return fromUsername || "S";
 };
 
-const generateCenterAdminId = (centerCode: string) => {
-  const normalizedCode = centerCode
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-  const seed = normalizedCode || "CENTER";
-  const suffix = Math.floor(100 + Math.random() * 900);
-  return `ADM-${seed.slice(0, 6)}-${suffix}`;
-};
-
-const generateCenterAdminPassword = () => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#";
-  let password = "";
-  for (let i = 0; i < 10; i += 1) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return password;
-};
-
 function StatCard({
   label,
   value,
@@ -344,6 +325,7 @@ export default function AdminDashboard() {
   );
   const [users, setUsers] = useState<UserData[]>([]);
   const [courses, setCourses] = useState<CourseData[]>([]);
+  const [centers, setCenters] = useState<CenterRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -372,18 +354,6 @@ export default function AdminDashboard() {
   const [courseForm, setCourseForm] = useState<CourseFormState>(
     emptyCourseForm,
   );
-  const [centerForm, setCenterForm] = useState<CenterFormState>(
-    emptyCenterForm,
-  );
-  const [centers, setCenters] = useState<CenterRecord[]>([]);
-  const [centerFormMode, setCenterFormMode] = useState<"add" | "edit">("add");
-  const [editingCenterId, setEditingCenterId] = useState<string | null>(null);
-  const [viewCenter, setViewCenter] = useState<CenterRecord | null>(null);
-  const [centerFeedback, setCenterFeedback] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const [showCenterForm, setShowCenterForm] = useState(false);
 
   const [deleteDialog, setDeleteDialog] = useState<{
     type: "student" | "course";
@@ -510,44 +480,50 @@ export default function AdminDashboard() {
     if (section === "courses" && courses.length === 0) {
       loadCourses();
     }
-    if (section === "center") {
-      if (users.length === 0) loadUsers();
-      if (courses.length === 0) loadCourses();
-      if (!dashboardData) loadDashboardData();
-    }
   }, [section]);
 
-  // Load centers from database
-  const loadCenters = async () => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
     try {
-      const data = await api.centers.getAll();
-      const mappedCenters: CenterRecord[] = data.map((center) => ({
-        id: center.id.toString(),
-        centerName: center.centerName,
-        schoolName: center.schoolName,
-        centerCode: center.centerCode,
-        contactPerson: center.contactPerson,
-        phoneNumber: center.phoneNumber,
-        email: center.email,
-        address: center.address || "",
-        boardOrCurriculum: center.boardOrCurriculum || "",
-        centerAdminId: center.centerAdminId,
-        centerAdminPassword: (center as any).centerAdminPassword || "",
-        status: center.status as "Active" | "Inactive",
-        totalStudents: (center as any).totalStudents || 0,
-        createdAt: center.createdAt,
-        updatedAt: center.updatedAt,
-      }));
-      setCenters(mappedCenters);
+      const rawCenters = localStorage.getItem(centerListStorageKey);
+      if (rawCenters) {
+        const parsedCenters = JSON.parse(rawCenters) as CenterRecord[];
+        if (Array.isArray(parsedCenters)) {
+          setCenters(parsedCenters);
+          return;
+        }
+      }
+
+      const rawLegacy = localStorage.getItem(centerDetailsStorageKey);
+      if (rawLegacy) {
+        const parsedLegacy = JSON.parse(rawLegacy) as {
+          details?: Partial<CenterFormState>;
+          savedAt?: string;
+        };
+        if (parsedLegacy.details) {
+          const migratedCenter: CenterRecord = {
+            id: `CTR-${Date.now()}`,
+            ...emptyCenterForm,
+            ...parsedLegacy.details,
+            centerCode:
+              parsedLegacy.details.centerCode?.trim() ||
+              `CTR-${String(Date.now()).slice(-6)}`,
+            totalStudents: users.length,
+            createdAt: parsedLegacy.savedAt || new Date().toISOString(),
+            updatedAt: parsedLegacy.savedAt || new Date().toISOString(),
+          };
+          setCenters([migratedCenter]);
+          localStorage.setItem(
+            centerListStorageKey,
+            JSON.stringify([migratedCenter]),
+          );
+        }
+      }
     } catch (err) {
       console.error("Failed to load centers:", err);
     }
-  };
-
-  useEffect(() => {
-    // Load centers from database
-    loadCenters();
-  }, [section]);
+  }, [users.length]);
 
   const query = search.toLowerCase();
   const mediaBaseUrl = (
@@ -905,174 +881,6 @@ export default function AdminDashboard() {
     });
     setAdminModalOpen(false);
     window.alert("Password reset request submitted.");
-  };
-
-  const setCenterMessage = (type: "success" | "error", message: string) => {
-    setCenterFeedback({ type, message });
-    window.setTimeout(() => setCenterFeedback(null), 2500);
-  };
-
-  const validateCenterForm = () => {
-    const requiredFields: Array<[string, string]> = [
-      ["Center Name", centerForm.centerName],
-      ["School Name", centerForm.schoolName],
-      ["Center Code", centerForm.centerCode],
-      ["Contact Person", centerForm.contactPerson],
-      ["Phone Number", centerForm.phoneNumber],
-      ["Email Address", centerForm.email],
-      ["Board / Curriculum", centerForm.boardOrCurriculum],
-      ["Center Admin ID", centerForm.centerAdminId],
-      ["Address", centerForm.address],
-    ];
-
-    // Only require password for new centers
-    if (centerFormMode === "add" && !centerForm.centerAdminPassword.trim()) {
-      return "Center Admin Password is required.";
-    }
-
-    const missingField = requiredFields.find(([, value]) => !value.trim());
-    if (missingField) {
-      return `${missingField[0]} is required.`;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(centerForm.email.trim())) {
-      return "Please enter a valid email address.";
-    }
-
-    const phoneRegex = /^\+?[0-9\s()-]{7,15}$/;
-    if (!phoneRegex.test(centerForm.phoneNumber.trim())) {
-      return "Please enter a valid phone number.";
-    }
-
-    const normalizedCode = centerForm.centerCode.trim().toUpperCase();
-    const duplicateCode = centers.some(
-      (center) =>
-        center.centerCode.trim().toUpperCase() === normalizedCode &&
-        center.id !== editingCenterId,
-    );
-    if (duplicateCode) {
-      return "Center code must be unique.";
-    }
-
-    return null;
-  };
-
-  const syncCenterForPanel = (records: CenterRecord[]) => {
-    const primary = records.find((c) => c.status === "Active") ?? records[0];
-    if (!primary) {
-      localStorage.removeItem(centerDetailsStorageKey);
-      return;
-    }
-
-    localStorage.setItem(
-      centerDetailsStorageKey,
-      JSON.stringify({
-        details: {
-          centerName: primary.centerName,
-          schoolName: primary.schoolName,
-          centerCode: primary.centerCode,
-        },
-        savedAt: primary.updatedAt,
-      }),
-    );
-  };
-
-  const resetCenterForm = () => {
-    setCenterForm(emptyCenterForm);
-    setCenterFormMode("add");
-    setEditingCenterId(null);
-    setShowCenterForm(false);
-  };
-
-  const handleCenterSubmit = async () => {
-    const validationError = validateCenterForm();
-    if (validationError) {
-      setCenterMessage("error", validationError);
-      return;
-    }
-
-    const centerData: any = {
-      centerName: centerForm.centerName.trim(),
-      schoolName: centerForm.schoolName.trim(),
-      centerCode: centerForm.centerCode.trim().toUpperCase(),
-      contactPerson: centerForm.contactPerson.trim(),
-      boardOrCurriculum: centerForm.boardOrCurriculum.trim(),
-      centerAdminId: centerForm.centerAdminId.trim().toUpperCase(),
-      phoneNumber: centerForm.phoneNumber.trim(),
-      email: centerForm.email.trim().toLowerCase(),
-      address: centerForm.address.trim(),
-    };
-
-    // Only include password if it's not empty (for edit mode) or always (for add mode)
-    if (centerForm.centerAdminPassword.trim()) {
-      centerData.centerAdminPassword = centerForm.centerAdminPassword.trim();
-    }
-
-    try {
-      if (centerFormMode === "edit" && editingCenterId) {
-        await api.centers.update(parseInt(editingCenterId), centerData);
-        setCenterMessage("success", "Center updated successfully.");
-      } else {
-        await api.centers.create(centerData);
-        setCenterMessage("success", "Center added successfully.");
-      }
-
-      // Reload centers from database
-      await loadCenters();
-      resetCenterForm();
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to save center";
-      setCenterMessage("error", errorMessage);
-    }
-  };
-
-  const handleCenterEdit = (center: CenterRecord) => {
-    setCenterForm({
-      centerName: center.centerName,
-      schoolName: center.schoolName,
-      centerCode: center.centerCode,
-      contactPerson: center.contactPerson,
-      boardOrCurriculum: center.boardOrCurriculum || "",
-      centerAdminId: center.centerAdminId,
-      centerAdminPassword: center.centerAdminPassword || "",
-      phoneNumber: center.phoneNumber,
-      email: center.email,
-      address: center.address || "",
-      status: center.status === "Inactive" ? "Inactive" : "Active",
-    });
-    setCenterFormMode("edit");
-    setEditingCenterId(center.id);
-    setShowCenterForm(true);
-  };
-
-  const handleCenterDelete = async (centerId: string) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this center?",
-    );
-    if (!confirmed) return;
-
-    try {
-      await api.centers.delete(parseInt(centerId));
-
-      // Reload centers from database
-      await loadCenters();
-
-      if (editingCenterId === centerId) {
-        resetCenterForm();
-      }
-
-      if (viewCenter?.id === centerId) {
-        setViewCenter(null);
-      }
-
-      setCenterMessage("success", "Center deleted successfully.");
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to delete center";
-      setCenterMessage("error", errorMessage);
-    }
   };
 
   if (isLoading || !isAuthenticated) {
@@ -1502,450 +1310,11 @@ export default function AdminDashboard() {
           {section === "videos" && <OptimizedAdminVideoManagement />}
           {/* ── COURSES ── */}
           {section === "courses" && <AdminCourseManagement />}
-          {/* ── CENTER ── */}
-          {section === "center" && (
-            <div className="space-y-5">
-              <div className="rounded-2xl bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-slate-200 text-black p-6 shadow-sm">
-                <h2 className="text-lg font-bold text-black">
-                  Center Management
-                </h2>
-                <p className="text-xs text-black mt-1.5">
-                  Create, view, edit, and manage independent school centers.
-                </p>
-              </div>
-
-              {centerFeedback && (
-                <div
-                  className={`rounded-xl px-4 py-3 text-sm font-medium border ${
-                    centerFeedback.type === "success"
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : "bg-red-50 border-red-200 text-red-700"
-                  }`}
-                >
-                  {centerFeedback.message}
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 xl:grid-cols-1 gap-5">
-                <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-                  <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-slate-200 flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Center List
-                    </h3>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-600 font-medium">
-                        {centers.length} total centers
-                      </span>
-                      <button
-                        onClick={() => {
-                          setCenterFormMode("add");
-                          setShowCenterForm(true);
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Create Center
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1080px]">
-                      <thead className="bg-slate-50">
-                        <tr className="text-left">
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Center Name
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            School Name
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Center Code
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Contact Person
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Phone Number
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Email
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Total Students
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Status
-                          </th>
-                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {centers.map((center) => (
-                          <tr
-                            key={center.id}
-                            className="border-t border-slate-100 hover:bg-slate-50/70"
-                          >
-                            <td className="px-4 py-3 text-xs font-semibold text-slate-800">
-                              {center.centerName}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-700">
-                              {center.schoolName}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-700">
-                              {center.centerCode}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-700">
-                              {center.contactPerson}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-700">
-                              {center.phoneNumber}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-700">
-                              {center.email}
-                            </td>
-                            <td className="px-4 py-3 text-xs font-semibold text-slate-700">
-                              {center.totalStudents}
-                            </td>
-                            <td className="px-4 py-3">
-                              <Badge status={center.status} />
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => setViewCenter(center)}
-                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50"
-                                >
-                                  View
-                                </button>
-                                <button
-                                  onClick={() => handleCenterEdit(center)}
-                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleCenterDelete(center.id)}
-                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-red-200 text-red-700 hover:bg-red-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {centers.length === 0 && (
-                    <div className="py-14 text-center text-sm text-slate-400">
-                      No centers added yet.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </main>
 
-        {viewCenter && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-            <div className="w-full max-w-lg bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="text-base font-bold text-slate-900">
-                  Center Details
-                </h3>
-                <button
-                  onClick={() => setViewCenter(null)}
-                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="p-6">
-                <table className="w-full">
-                  <tbody>
-                    {[
-                      ["Center Name", viewCenter.centerName],
-                      ["School Name", viewCenter.schoolName],
-                      ["Center Code", viewCenter.centerCode],
-                      ["Contact Person", viewCenter.contactPerson],
-                      ["Phone Number", viewCenter.phoneNumber],
-                      ["Email", viewCenter.email],
-                      ["Board / Curriculum", viewCenter.boardOrCurriculum],
-                      ["Center Admin ID", viewCenter.centerAdminId],
-                      ["Center Admin Password", viewCenter.centerAdminPassword],
-                      ["Address", viewCenter.address],
-                      ["Total Students", String(viewCenter.totalStudents)],
-                      ["Status", viewCenter.status],
-                    ].map(([label, value]) => (
-                      <tr
-                        key={label}
-                        className="border-b border-slate-100 last:border-b-0"
-                      >
-                        <td className="py-2 text-xs font-semibold text-slate-600 w-44">
-                          {label}
-                        </td>
-                        <td className="py-2 text-xs text-slate-800">{value}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showCenterForm && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="w-full max-w-lg max-h-[90vh] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col">
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-slate-50">
-                <h3 className="text-base font-bold text-slate-900">
-                  {centerFormMode === "add"
-                    ? "Create New Center"
-                    : "Edit Center"}
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowCenterForm(false);
-                    resetCenterForm();
-                  }}
-                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Center Name
-                  </label>
-                  <input
-                    type="text"
-                    value={centerForm.centerName}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        centerName: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    School Name
-                  </label>
-                  <input
-                    type="text"
-                    value={centerForm.schoolName}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        schoolName: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Center Code
-                  </label>
-                  <input
-                    type="text"
-                    value={centerForm.centerCode}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        centerCode: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Contact Person
-                  </label>
-                  <input
-                    type="text"
-                    value={centerForm.contactPerson}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        contactPerson: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Phone Number
-                  </label>
-                  <input
-                    type="text"
-                    value={centerForm.phoneNumber}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        phoneNumber: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={centerForm.email}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({ ...p, email: e.target.value }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Board / Curriculum
-                  </label>
-                  <select
-                    value={centerForm.boardOrCurriculum}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        boardOrCurriculum: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  >
-                    <option value="">Select board</option>
-                    <option value="CBSE">CBSE</option>
-                    <option value="ICSE">ICSE</option>
-                    <option value="State Board">State Board</option>
-                    <option value="IB">IB</option>
-                    <option value="Cambridge">Cambridge</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Center Admin ID
-                  </label>
-                  <input
-                    type="text"
-                    value={centerForm.centerAdminId}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        centerAdminId: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  />
-                </div>
-                {centerFormMode === "add" && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                      Center Admin Password
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={centerForm.centerAdminPassword}
-                        onChange={(e) =>
-                          setCenterForm((p) => ({
-                            ...p,
-                            centerAdminPassword: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const existing = new Set(
-                            centers
-                              .filter((c) => c.id !== editingCenterId)
-                              .map((c) => c.centerAdminPassword),
-                          );
-                          let pwd = generateCenterAdminPassword();
-                          while (existing.has(pwd))
-                            pwd = generateCenterAdminPassword();
-                          setCenterForm((p) => ({
-                            ...p,
-                            centerAdminPassword: pwd,
-                          }));
-                        }}
-                        className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50"
-                      >
-                        Generate
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Status
-                  </label>
-                  <select
-                    value={centerForm.status}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({
-                        ...p,
-                        status: e.target.value as "Active" | "Inactive",
-                      }))
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Address
-                  </label>
-                  <textarea
-                    value={centerForm.address}
-                    onChange={(e) =>
-                      setCenterForm((p) => ({ ...p, address: e.target.value }))
-                    }
-                    rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs resize-none"
-                  />
-                </div>
-              </div>
-              <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setShowCenterForm(false);
-                    resetCenterForm();
-                  }}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCenterSubmit}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg"
-                >
-                  {centerFormMode === "add" ? "Create Center" : "Update Center"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {studentModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
-            <div className="w-full max-w-xl max-h-[90vh] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden my-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-xl bg-white rounded-2xl border border-slate-200 shadow-2xl">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h2 className="text-base font-bold text-slate-900">
                   {studentModalMode === "add" ? "Add Student" : "Edit Student"}
