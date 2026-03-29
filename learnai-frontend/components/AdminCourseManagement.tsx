@@ -19,10 +19,27 @@ import {
   X,
   Save,
   Upload,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  Play,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
 // Types
+interface Lesson {
+  id: number;
+  title: string;
+  description: string | null;
+  content: string | null;
+  videoUrl: string | null;
+  orderIndex: number;
+  duration: string | null;
+  section: string | null;
+  sectionTitle: string | null;
+  type: string;
+}
+
 interface Course {
   id: number;
   title: string;
@@ -126,6 +143,35 @@ const COURSE_CATEGORIES = [
   "Business Analytics",
 ];
 
+interface LessonFormData {
+  title: string;
+  description: string;
+  content: string;
+  orderIndex: string;
+  duration: string;
+  section: string;
+  sectionTitle: string;
+  type: string;
+}
+
+const INITIAL_LESSON_FORM: LessonFormData = {
+  title: "",
+  description: "",
+  content: "",
+  orderIndex: "",
+  duration: "",
+  section: "",
+  sectionTitle: "",
+  type: "video",
+};
+
+const LESSON_TYPES = [
+  { value: "video", label: "Video" },
+  { value: "quiz", label: "Quiz" },
+  { value: "exercise", label: "Exercise" },
+  { value: "reading", label: "Reading" },
+];
+
 export default function AdminCourseManagement() {
   // State
   const [courses, setCourses] = useState<Course[]>([]);
@@ -145,7 +191,17 @@ export default function AdminCourseManagement() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEnrollmentsModal, setShowEnrollmentsModal] = useState(false);
+  const [showLessonModal, setShowLessonModal] = useState(false);
+  const [showLessonsDropdown, setShowLessonsDropdown] = useState<number | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  
+  // Lessons state
+  const [courseLessons, setCourseLessons] = useState<Record<number, Lesson[]>>({});
+  const [lessonsLoading, setLessonsLoading] = useState(false);
+  const [lessonForm, setLessonForm] = useState<LessonFormData>(INITIAL_LESSON_FORM);
+  const [lessonFormErrors, setLessonFormErrors] = useState<Partial<LessonFormData>>({});
+  const [lessonFormLoading, setLessonFormLoading] = useState(false);
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
 
   // Enrollment data
   const [
@@ -348,15 +404,134 @@ export default function AdminCourseManagement() {
     }
   };
 
+  const toggleLessonsDropdown = async (courseId: number) => {
+    if (showLessonsDropdown === courseId) {
+      setShowLessonsDropdown(null);
+    } else {
+      setShowLessonsDropdown(courseId);
+      if (!courseLessons[courseId]) {
+        setLessonsLoading(true);
+        try {
+          const lessons = await api.courses.getLessons(courseId);
+          setCourseLessons((prev) => ({ ...prev, [courseId]: lessons }));
+        } catch (err) {
+          console.error("Failed to load lessons:", err);
+        } finally {
+          setLessonsLoading(false);
+        }
+      }
+    }
+  };
+
+  const openAddLessonModal = (course: Course) => {
+    setSelectedCourse(course);
+    setEditingLesson(null);
+    setLessonForm({
+      ...INITIAL_LESSON_FORM,
+      orderIndex: String(course.lessonCount + 1),
+    });
+    setLessonFormErrors({});
+    setShowLessonModal(true);
+  };
+
+  const openEditLessonModal = (lesson: Lesson) => {
+    setEditingLesson(lesson);
+    setLessonForm({
+      title: lesson.title,
+      description: lesson.description || "",
+      content: lesson.content || "",
+      orderIndex: String(lesson.orderIndex),
+      duration: lesson.duration || "",
+      section: lesson.section || "",
+      sectionTitle: lesson.sectionTitle || "",
+      type: lesson.type || "video",
+    });
+    setLessonFormErrors({});
+    setShowLessonModal(true);
+  };
+
+  const handleLessonInputChange = (field: keyof LessonFormData, value: string) => {
+    setLessonForm((prev) => ({ ...prev, [field]: value }));
+    if (lessonFormErrors[field]) {
+      setLessonFormErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const validateLessonForm = (): boolean => {
+    const errors: Partial<LessonFormData> = {};
+    if (!lessonForm.title.trim()) errors.title = "Title is required";
+    if (!lessonForm.orderIndex.trim()) errors.orderIndex = "Order index is required";
+    else if (isNaN(Number(lessonForm.orderIndex))) errors.orderIndex = "Must be a number";
+
+    setLessonFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveLesson = async () => {
+    if (!selectedCourse || !validateLessonForm()) return;
+
+    setLessonFormLoading(true);
+    try {
+      const payload = {
+        title: lessonForm.title.trim(),
+        description: lessonForm.description.trim() || undefined,
+        content: lessonForm.content.trim() || undefined,
+        orderIndex: parseInt(lessonForm.orderIndex),
+        duration: lessonForm.duration.trim() || undefined,
+        section: lessonForm.section.trim() || undefined,
+        sectionTitle: lessonForm.sectionTitle.trim() || undefined,
+        type: lessonForm.type,
+      };
+
+      if (editingLesson) {
+        await api.courses.updateLesson(selectedCourse.id, editingLesson.id, payload);
+      } else {
+        await api.courses.createLesson(selectedCourse.id, payload);
+      }
+
+      const lessons = await api.courses.getLessons(selectedCourse.id);
+      setCourseLessons((prev) => ({ ...prev, [selectedCourse.id]: lessons }));
+      await loadDashboardData();
+      setShowLessonModal(false);
+      setLessonForm(INITIAL_LESSON_FORM);
+      setEditingLesson(null);
+    } catch (err) {
+      setError((err as any)?.message || "Failed to save lesson");
+    } finally {
+      setLessonFormLoading(false);
+    }
+  };
+
+  const handleDeleteLesson = async (lessonId: number) => {
+    if (!selectedCourse) return;
+    
+    const confirmed = window.confirm("Are you sure you want to delete this lesson?");
+    if (!confirmed) return;
+
+    try {
+      await api.courses.deleteLesson(selectedCourse.id, lessonId);
+      const lessons = await api.courses.getLessons(selectedCourse.id);
+      setCourseLessons((prev) => ({ ...prev, [selectedCourse.id]: lessons }));
+      await loadDashboardData();
+    } catch (err) {
+      setError((err as any)?.message || "Failed to delete lesson");
+    }
+  };
+
   const resetModals = () => {
     setShowCreateModal(false);
     setShowEditModal(false);
     setShowDeleteModal(false);
     setShowEnrollmentsModal(false);
+    setShowLessonModal(false);
+    setShowLessonsDropdown(null);
     setSelectedCourse(null);
     setFormData(INITIAL_FORM_DATA);
     setFormErrors({});
     setEnrollmentData(null);
+    setLessonForm(INITIAL_LESSON_FORM);
+    setLessonFormErrors({});
+    setEditingLesson(null);
   };
 
   if (loading) {
@@ -543,6 +718,9 @@ export default function AdminCourseManagement() {
                   Stats
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Lessons
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -638,6 +816,98 @@ export default function AdminCourseManagement() {
                           <BookOpen className="w-4 h-4 mr-1" />
                           {course.lessonCount}
                         </div>
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="relative">
+                        <button
+                          onClick={() => toggleLessonsDropdown(course.id)}
+                          className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                        >
+                          <Play className="w-4 h-4" />
+                          View Lessons
+                          {showLessonsDropdown === course.id ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
+                        
+                        {showLessonsDropdown === course.id && (
+                          <div className="absolute z-20 left-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                            <div className="p-2 border-b border-gray-100 flex justify-between items-center">
+                              <span className="text-xs font-medium text-gray-600">
+                                {courseLessons[course.id]?.length || 0} Lessons
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAddLessonModal(course);
+                                }}
+                                className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
+                              >
+                                <Plus className="w-3 h-3" />
+                                Add Lesson
+                              </button>
+                            </div>
+                            
+                            {lessonsLoading && showLessonsDropdown === course.id ? (
+                              <div className="p-4 text-center text-gray-500">
+                                <RefreshCw className="w-4 h-4 animate-spin mx-auto" />
+                              </div>
+                            ) : courseLessons[course.id]?.length > 0 ? (
+                              <div className="py-1">
+                                {courseLessons[course.id].map((lesson) => (
+                                  <div
+                                    key={lesson.id}
+                                    className="px-3 py-2 hover:bg-gray-50 flex items-center justify-between group"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-medium text-gray-400 w-5">
+                                        {lesson.orderIndex}.
+                                      </span>
+                                      <span className="text-sm text-gray-700 truncate max-w-48">
+                                        {lesson.title}
+                                      </span>
+                                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">
+                                        {lesson.type}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedCourse(course);
+                                          openEditLessonModal(lesson);
+                                        }}
+                                        className="p-1 text-indigo-600 hover:text-indigo-800"
+                                        title="Edit lesson"
+                                      >
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedCourse(course);
+                                          handleDeleteLesson(lesson.id);
+                                        }}
+                                        className="p-1 text-red-600 hover:text-red-800"
+                                        title="Delete lesson"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="p-4 text-center text-gray-500 text-sm">
+                                No lessons yet
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </td>
 
@@ -1097,6 +1367,189 @@ export default function AdminCourseManagement() {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Lesson Modal */}
+      {showLessonModal && selectedCourse && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {editingLesson ? "Edit Lesson" : "Add Lesson"}
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedCourse.title}
+                  </p>
+                </div>
+                <button
+                  onClick={resetModals}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form className="space-y-4">
+                {/* Title and Order Index */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Lesson Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonForm.title}
+                      onChange={(e) => handleLessonInputChange("title", e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
+                        lessonFormErrors.title ? "border-red-300" : "border-gray-300"
+                      }`}
+                      placeholder="Enter lesson title"
+                    />
+                    {lessonFormErrors.title && (
+                      <p className="text-sm text-red-600 mt-1">
+                        {lessonFormErrors.title}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Order Index *
+                    </label>
+                    <input
+                      type="number"
+                      value={lessonForm.orderIndex}
+                      onChange={(e) => handleLessonInputChange("orderIndex", e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
+                        lessonFormErrors.orderIndex ? "border-red-300" : "border-gray-300"
+                      }`}
+                      placeholder="e.g., 1"
+                    />
+                    {lessonFormErrors.orderIndex && (
+                      <p className="text-sm text-red-600 mt-1">
+                        {lessonFormErrors.orderIndex}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={lessonForm.description}
+                    onChange={(e) => handleLessonInputChange("description", e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Enter lesson description"
+                  />
+                </div>
+
+                {/* Content */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Content (Markdown supported)
+                  </label>
+                  <textarea
+                    value={lessonForm.content}
+                    onChange={(e) => handleLessonInputChange("content", e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                    placeholder="Enter lesson content or instructions"
+                  />
+                </div>
+
+                {/* Type, Duration, Section */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Lesson Type
+                    </label>
+                    <select
+                      value={lessonForm.type}
+                      onChange={(e) => handleLessonInputChange("type", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {LESSON_TYPES.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Duration
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonForm.duration}
+                      onChange={(e) => handleLessonInputChange("duration", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g., 15 minutes"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Section/Day
+                    </label>
+                    <input
+                      type="text"
+                      value={lessonForm.section}
+                      onChange={(e) => handleLessonInputChange("section", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g., Day 1, Week 1"
+                    />
+                  </div>
+                </div>
+
+                {/* Section Title */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Section Title
+                  </label>
+                  <input
+                    type="text"
+                    value={lessonForm.sectionTitle}
+                    onChange={(e) => handleLessonInputChange("sectionTitle", e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g., Introduction to Neural Networks"
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={resetModals}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveLesson}
+                    disabled={lessonFormLoading}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {lessonFormLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    {editingLesson ? "Update Lesson" : "Add Lesson"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

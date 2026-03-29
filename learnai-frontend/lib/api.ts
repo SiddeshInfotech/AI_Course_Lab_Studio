@@ -52,7 +52,7 @@ const clearClientAuthOnUnauthorized = (status: number, errorCode?: string) => {
   }
 };
 
-const parseResponse = async <T>(response: Response): Promise<T> => {
+async function parseResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type");
   const fallback = `HTTP error ${response.status}`;
 
@@ -101,7 +101,7 @@ const parseResponse = async <T>(response: Response): Promise<T> => {
   }
 
   return {} as T;
-};
+}
 
 const getAuthHeaders = (): HeadersInit => {
   const headers: HeadersInit = {
@@ -277,8 +277,125 @@ export const api = {
           videoUrl: string | null;
           orderIndex: number;
           duration: string | null;
+          section: string | null;
+          sectionTitle: string | null;
+          type: string;
         }>
       >(response);
+    },
+
+    createLesson: async (
+      courseId: number,
+      data: {
+        title: string;
+        description?: string;
+        content?: string;
+        orderIndex: number;
+        duration?: string;
+        section?: string;
+        sectionTitle?: string;
+        type?: string;
+      },
+    ) => {
+      const response = await fetch(
+        `${API_BASE_URL}/courses/${courseId}/lessons`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(data),
+        },
+      );
+      return parseResponse<{
+        id: number;
+        title: string;
+        description: string | null;
+        content: string | null;
+        videoUrl: string | null;
+        orderIndex: number;
+        duration: string | null;
+        section: string | null;
+        sectionTitle: string | null;
+        type: string;
+      }>(response);
+    },
+
+    updateLesson: async (
+      courseId: number,
+      lessonId: number,
+      data: {
+        title?: string;
+        description?: string;
+        content?: string;
+        duration?: string;
+        section?: string;
+        sectionTitle?: string;
+        type?: string;
+      },
+    ) => {
+      const response = await fetch(
+        `${API_BASE_URL}/courses/${courseId}/lessons/${lessonId}`,
+        {
+          method: "PUT",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(data),
+        },
+      );
+      return parseResponse<{
+        id: number;
+        title: string;
+      }>(response);
+    },
+
+    deleteLesson: async (courseId: number, lessonId: number) => {
+      const response = await fetch(
+        `${API_BASE_URL}/courses/${courseId}/lessons/${lessonId}`,
+        {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<{ message: string }>(response);
+    },
+
+    uploadLessonVideo: async (
+      courseId: number,
+      lessonId: number,
+      file: File,
+      language: "english" | "hindi" | "marathi",
+    ) => {
+      const formData = new FormData();
+      formData.append("video", file);
+      formData.append("language", language);
+
+      const response = await fetch(
+        `${API_BASE_URL}/courses/${courseId}/lessons/${lessonId}/upload-video`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${
+              typeof window !== "undefined" ? localStorage.getItem("token") : ""
+            }`,
+          },
+          body: formData,
+        },
+      );
+      return parseResponse<{
+        message: string;
+        lesson: {
+          id: number;
+          title: string;
+          videoUrl: string | null;
+          videoUrlEnglish: string | null;
+          videoUrlHindi: string | null;
+          videoUrlMarathi: string | null;
+        };
+        video: {
+          language: string;
+          url: string;
+          size: number;
+          fieldName: string;
+        };
+      }>(response);
     },
   },
 
@@ -350,6 +467,135 @@ export const api = {
     },
   },
 
+  usage: {
+    getStatus: async () => {
+      const response = await fetch(`${API_BASE_URL}/usage/status`, {
+        headers: getAuthHeaders(),
+      });
+      return parseResponse<{
+        remainingSeconds: number;
+        usedSeconds: number;
+        limitSeconds: number;
+        isLocked: boolean;
+        remainingFormatted: string;
+        usedFormatted: string;
+      }>(response);
+    },
+    sendHeartbeat: async () => {
+      const response = await fetch(`${API_BASE_URL}/usage/heartbeat`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      return parseResponse<{
+        success: boolean;
+        remainingSeconds: number;
+        usedSeconds: number;
+        limitSeconds: number;
+        isLocked: boolean;
+        remainingFormatted: string;
+      }>(response);
+    },
+  },
+
+  centers: {
+    getAll: async () => {
+      const response = await fetch(`${API_BASE_URL}/centers`, {
+        headers: getAuthHeaders(),
+      });
+      return parseResponse<
+        Array<{
+          id: number;
+          centerName: string;
+          schoolName: string;
+          centerCode: string;
+          contactPerson: string;
+          phoneNumber: string;
+          email: string;
+          address: string | null;
+          boardOrCurriculum: string | null;
+          centerAdminId: string;
+          centerAdminPassword: string;
+          status: string;
+          createdAt: string;
+          updatedAt: string;
+        }>
+      >(response);
+    },
+    create: async (data: {
+      centerName: string;
+      schoolName: string;
+      centerCode: string;
+      contactPerson: string;
+      phoneNumber: string;
+      email: string;
+      address?: string;
+      boardOrCurriculum?: string;
+      centerAdminId: string;
+      centerAdminPassword: string;
+    }) => {
+      const response = await fetch(`${API_BASE_URL}/centers`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data),
+      });
+      return parseResponse<{
+        id: number;
+        centerName: string;
+        schoolName: string;
+        centerCode: string;
+        contactPerson: string;
+        phoneNumber: string;
+        email: string;
+        address: string | null;
+        boardOrCurriculum: string | null;
+        centerAdminId: string;
+        status: string;
+      }>(response);
+    },
+    update: async (
+      id: number,
+      data: {
+        centerName?: string;
+        schoolName?: string;
+        centerCode?: string;
+        contactPerson?: string;
+        phoneNumber?: string;
+        email?: string;
+        address?: string;
+        boardOrCurriculum?: string;
+        centerAdminId?: string;
+        centerAdminPassword?: string;
+        status?: string;
+      },
+    ) => {
+      const response = await fetch(`${API_BASE_URL}/centers/${id}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data),
+      });
+      return parseResponse<{
+        id: number;
+        centerName: string;
+        schoolName: string;
+        centerCode: string;
+        contactPerson: string;
+        phoneNumber: string;
+        email: string;
+        address: string | null;
+        boardOrCurriculum: string | null;
+        centerAdminId: string;
+        status: string;
+      }>(response);
+    },
+    delete: async (id: number) => {
+      const response = await fetch(`${API_BASE_URL}/centers/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      return parseResponse<{ message: string }>(response);
+    },
+  },
+
   learning: {
     getCurriculum: async (courseId: number) => {
       const response = await fetch(
@@ -373,6 +619,11 @@ export const api = {
             description: string | null;
             content: string | null;
             videoUrl: string | null;
+            languages?: {
+              english?: string | null;
+              hindi?: string | null;
+              marathi?: string | null;
+            };
             objectives: string[];
             orderIndex: number;
           }>;
@@ -390,6 +641,11 @@ export const api = {
           description: string | null;
           content: string | null;
           videoUrl: string | null;
+          languages?: {
+            english?: string | null;
+            hindi?: string | null;
+            marathi?: string | null;
+          };
           objectives: string[];
           orderIndex: number;
         } | null;
@@ -463,6 +719,51 @@ export const api = {
           completed: boolean;
           lastAccessedAt: string;
         };
+      }>(response);
+    },
+
+    setLanguagePreference: async (
+      courseId: number,
+      language: "english" | "hindi" | "marathi",
+    ) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/${courseId}/language`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ language }),
+        },
+      );
+      return parseResponse<{
+        message: string;
+        preference: {
+          id: number;
+          userId: number;
+          courseId: number;
+          language: string;
+          createdAt: string;
+          updatedAt: string;
+        };
+      }>(response);
+    },
+
+    getLanguagePreference: async (courseId: number) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/${courseId}/language`,
+        {
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<{
+        language: "english" | "hindi" | "marathi";
+        preference: {
+          id: number;
+          userId: number;
+          courseId: number;
+          language: string;
+          createdAt: string;
+          updatedAt: string;
+        } | null;
       }>(response);
     },
 
@@ -561,8 +862,44 @@ export const api = {
           email: string;
           isAdmin: boolean;
           created_at: string;
+          rollNumber: string | null;
+          dob: string | null;
+          centerId: number | null;
+          center: { centerName: string; centerCode: string } | null;
+          _count: { enrollments: number };
         }>
       >(response);
+    },
+
+    updateUser: async (
+      userId: number,
+      data: {
+        name?: string;
+        email?: string;
+        rollNumber?: string;
+        dob?: string;
+        centerId?: number | null;
+        courseIds?: number[];
+      },
+    ) => {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data),
+      });
+      return parseResponse<{
+        message: string;
+        user: {
+          id: number;
+          name: string;
+          username: string;
+          email: string;
+          rollNumber: string | null;
+          dob: string | null;
+          centerId: number | null;
+          center: { centerName: string; centerCode: string } | null;
+        };
+      }>(response);
     },
 
     courses: {
@@ -795,6 +1132,7 @@ export const api = {
       dob?: string; // Date of birth in YYYY-MM-DD format
       isAdmin?: boolean;
       courseIds?: number[]; // Array of course IDs for enrollment
+      centerId?: number | null; // Center ID for student
     }) => {
       const response = await fetch(`${API_BASE_URL}/admin/users`, {
         method: "POST",
@@ -830,6 +1168,7 @@ export const api = {
         dob: string | null;
         isAdmin: boolean;
         created_at: string;
+        centerId: number | null;
         enrolledCourseIds: number[];
         enrolledCourses: Array<{
           id: number;

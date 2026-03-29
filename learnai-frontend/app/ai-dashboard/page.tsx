@@ -115,6 +115,7 @@ export default function AIDashboardPage() {
     null,
   );
   const [isLoadingCourse, setIsLoadingCourse] = useState(true);
+  const [totalLessons, setTotalLessons] = useState(0);
   const [
     completedLessonOrderIndexes,
     setCompletedLessonOrderIndexes,
@@ -126,25 +127,23 @@ export default function AIDashboardPage() {
     }
   }, [isLoading, isAuthenticated, router]);
 
+  // Fetch streak from API
   useEffect(() => {
-    const fetchDashboardStats = async () => {
+    const fetchStreak = async () => {
       if (!isAuthenticated) return;
 
       try {
-        setIsLoadingStats(true);
-        const data = await api.dashboard.getStats();
-        setStats(data.stats);
+        const streakData = await api.dashboard.getStreak();
+        setStats(prev => ({ ...prev, streak: streakData.streak }));
       } catch (error) {
-        console.error("Failed to fetch dashboard stats:", error);
-      } finally {
-        setIsLoadingStats(false);
+        console.error("Failed to fetch streak:", error);
       }
     };
 
-    fetchDashboardStats();
+    fetchStreak();
   }, [isAuthenticated]);
 
-  // Fetch course progress to determine which tools are locked
+  // Fetch course progress to determine which tools are locked and calculate stats
   useEffect(() => {
     const fetchCourseProgress = async () => {
       if (!isAuthenticated) return;
@@ -162,11 +161,28 @@ export default function AIDashboardPage() {
           const curriculumData = await api.learning.getCurriculum(
             mainCourse.id,
           );
-          const completedOrders = curriculumData.curriculum
-            .flatMap((section) => section.items)
-            .filter((item) => item.completed)
-            .map((item) => item.orderIndex);
+          
+          // Calculate total lessons and completed lessons from curriculum
+          const allLessons = curriculumData.curriculum.flatMap((section) => section.items);
+          const completedLessons = allLessons.filter((item) => item.completed);
+          const completedOrders = completedLessons.map((item) => item.orderIndex);
+          
           setCompletedLessonOrderIndexes(completedOrders);
+          setTotalLessons(allLessons.length);
+
+          // Calculate stats from curriculum data
+          const modulesCompleted = completedLessons.length;
+          const modulesEnrolled = allLessons.length;
+          const accuracy = modulesEnrolled > 0 
+            ? Math.round((modulesCompleted / modulesEnrolled) * 100) 
+            : 0;
+
+          setStats(prev => ({
+            ...prev,
+            modulesCompleted,
+            modulesEnrolled,
+            accuracy
+          }));
 
           if (curriculumData.currentLesson) {
             setCourseProgress({
@@ -178,11 +194,13 @@ export default function AIDashboardPage() {
           }
         } else {
           setCourseProgress(null);
+          setTotalLessons(0);
         }
       } catch (error) {
         console.error("Failed to fetch course progress:", error);
       } finally {
         setIsLoadingCourse(false);
+        setIsLoadingStats(false);
       }
     };
 
@@ -573,25 +591,37 @@ export default function AIDashboardPage() {
                   const isMastered = isToolMastered(name);
                   const toolLocked = isToolLocked(name);
                   const logoUrl = TOOL_LOGOS[name];
+                  
+                  // Get the lesson orderIndex for this tool (position + 1)
+                  const toolPosition = getToolAbsolutePosition(name);
+                  const lessonOrderIndex = toolPosition + 1;
+                  
+                  const handleToolClick = () => {
+                    if (isMastered && courseProgress) {
+                      // Redirect to the specific lesson in the course
+                      router.push(`/learning?courseId=${courseProgress.courseId}&lessonOrderIndex=${lessonOrderIndex}`);
+                    }
+                  };
+                  
                   return (
                     <div
                       key={name}
-                      onClick={() => !toolLocked && router.push("/learning")}
+                      onClick={isMastered ? handleToolClick : undefined}
                       className={`bg-white rounded-2xl p-5 border shadow-sm transition-all duration-200 group relative flex flex-col items-center text-center ${
-                        toolLocked
+                        !isMastered
                           ? "border-slate-200 cursor-not-allowed opacity-60 hover:shadow-sm"
                           : "border-slate-100 cursor-pointer hover:shadow-lg hover:border-indigo-100 hover:-translate-y-1"
                       }`}
                       title={
-                        toolLocked ? "Complete previous days to unlock" : ""
+                        !isMastered ? "Complete this lesson to access the tool" : "Click to open the lesson"
                       }
                     >
-                      {!toolLocked && isMastered && (
+                      {isMastered && (
                         <div className="absolute top-3 right-3">
                           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                         </div>
                       )}
-                      {toolLocked && (
+                      {!isMastered && (
                         <div className="absolute top-3 right-3">
                           <Lock className="w-4 h-4 text-slate-400" />
                         </div>
@@ -599,7 +629,7 @@ export default function AIDashboardPage() {
                       {/* Tool logo / icon */}
                       <div
                         className={`w-14 h-14 rounded-xl mb-3 flex items-center justify-center overflow-hidden border ${
-                          toolLocked
+                          !isMastered
                             ? "bg-slate-100 border-slate-200"
                             : "bg-slate-50 border-slate-100 group-hover:scale-105"
                         } transition-transform duration-200`}
@@ -609,7 +639,7 @@ export default function AIDashboardPage() {
                             src={logoUrl}
                             alt={name}
                             className={`w-10 h-10 object-contain ${
-                              toolLocked ? "opacity-50" : ""
+                              !isMastered ? "opacity-50" : ""
                             }`}
                             onError={(e) => {
                               (e.currentTarget as HTMLImageElement).style.display =
@@ -634,9 +664,14 @@ export default function AIDashboardPage() {
                       >
                         {name}
                       </h3>
-                      {!toolLocked && isMastered && (
+                      {isMastered && (
                         <span className="mt-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                          Mastered
+                          Mastered - Click to Open
+                        </span>
+                      )}
+                      {!isMastered && (
+                        <span className="mt-1.5 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                          Locked
                         </span>
                       )}
                     </div>

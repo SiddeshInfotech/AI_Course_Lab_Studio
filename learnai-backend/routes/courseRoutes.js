@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import {
     listCourses,
     listEnrolledCourses,
@@ -16,6 +17,7 @@ import {
     getAdminCourseStats,
     getAdminCourseList,
     getCourseEnrollments,
+    uploadLessonVideo,
 } from "../controllers/courseController.js";
 import {
     createCourseFromTools,
@@ -26,6 +28,20 @@ import adminMiddleware from "../middleware/adminMiddleware.js";
 import accessLimitMiddleware from "../middleware/accessLimitMiddleware.js";
 
 const router = express.Router();
+
+// Configure multer for video uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+    storage,
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max for videos
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith("video/")) {
+            cb(null, true);
+        } else {
+            cb(new Error("Only video files are allowed"));
+        }
+    },
+});
 
 // Course routes (CRUD operations require admin privileges)
 router.get("/", listCourses);
@@ -50,5 +66,8 @@ router.get("/:id/lessons", listLessons);
 router.post("/:id/lessons", authMiddleware, adminMiddleware, addLesson);
 router.put("/:courseId/lessons/:lessonId", authMiddleware, adminMiddleware, editLesson);
 router.delete("/:courseId/lessons/:lessonId", authMiddleware, adminMiddleware, removeLesson);
+
+// Admin: Upload lesson video with language support
+router.post("/:courseId/lessons/:lessonId/upload-video", authMiddleware, adminMiddleware, upload.single("video"), uploadLessonVideo);
 
 export default router;

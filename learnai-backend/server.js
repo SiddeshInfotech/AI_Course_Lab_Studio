@@ -13,6 +13,10 @@ import mediaRoutes from "./routes/mediaRoutes.js";
 import videoRoutesNew from "./routes/videoRoutesNew.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import learningRoutes from "./routes/learningRoutes.js";
+import encryptionRoutes from "./routes/encryptionRoutes.js";
+import licenseRoutes from "./routes/licenseRoutes.js";
+import securityRoutes from "./routes/securityRoutes.js";
+import centerRoutes from "./routes/centerRoutes.js";
 import { getStorageType, getStorageConfig } from "./config/storage.js";
 import { initLocalStorage } from "./config/localStorage.js";
 import { initMinioClient, testMinioConnection, ensureBucket } from "./config/minio.js";
@@ -164,11 +168,20 @@ app.use("/api/tools", toolRoutes);
 app.use("/api/usage", usageRoutes);
 app.use("/api/progress", progressRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/centers", centerRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/videos", videoRoutesNew);
 app.use("/api/admin/videos", videoRoutesNew);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/learning", learningRoutes);
+
+// Encryption and License Management
+app.use("/api/encryption", encryptionRoutes);
+app.use("/api/license", licenseRoutes);
+
+// Security & Access Logging
+app.use("/api/security", securityRoutes);
+
 
 // Global error handler
 app.use((err, req, res, next) => {

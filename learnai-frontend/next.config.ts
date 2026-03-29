@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   transpilePackages: ["motion"],
+  // For Electron compatibility
+  output: "standalone",
+  typescript: {
+    ignoreBuildErrors: false,
+  },
 };
 
 export default nextConfig;

@@ -4,6 +4,7 @@ import { getMedia, getSignedMedia, generateMediaSignedUrl, revokeMediaAccess } f
 import authMiddleware from "../middleware/authMiddleware.js";
 import mediaAuthMiddleware from "../middleware/mediaAuthMiddleware.js";
 import { createMediaRateLimitMiddleware, bandwidthRateLimitMiddleware } from "../middleware/rateLimitMiddleware.js";
+import accessLimitMiddleware from "../middleware/accessLimitMiddleware.js";
 
 const router = express.Router();
 
@@ -21,18 +22,20 @@ export const upload = multer({
 const mediaAccessRateLimit = createMediaRateLimitMiddleware('media_access');
 const bandwidthRateLimit = bandwidthRateLimitMiddleware;
 
-// Protected route to stream/download media - requires authentication, authorization, and rate limiting
+// Protected route to stream/download media - requires authentication, authorization, rate limiting, and daily access limit
 router.get("/:id",
     authMiddleware,
+    accessLimitMiddleware,
     mediaAccessRateLimit,
     mediaAuthMiddleware,
     bandwidthRateLimit,
     getMedia
 );
 
-// Generate signed URL for secure media access
+// Generate signed URL for secure media access - requires daily access limit check
 router.post("/:id/signed-url",
     authMiddleware,
+    accessLimitMiddleware,
     mediaAccessRateLimit,
     mediaAuthMiddleware,
     generateMediaSignedUrl

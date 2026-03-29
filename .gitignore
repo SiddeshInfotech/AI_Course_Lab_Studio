@@ -1,9 +1,103 @@
+# ============================================
+# AI Course Lab Studio - Main .gitignore
+# ============================================
+
+# Dependencies
 node_modules/
-.next/
+.pnp
+.pnp.js
+
+docs
+
+# Testing
 coverage/
-.DS_Store
-*.log
-.env*
+.nyc_output
+
+# Next.js Build
+.next/
+out/
+
+# Build outputs
+dist/
+build/
+
+# Environment Variables
+.env
+.env*.local
 !.env.example
+!.env*.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Cache directories
+.cache/
+.turbo/
+.eslintcache
+
+# Documentation (if contains sensitive info)
+# docs/
+
+# Test artifacts
+*.test.js.snap
+__snapshots__/
+
+# Electron build artifacts
+release/
+app/dist/
+
+# Temporary files
+*.tmp
+tmp/
+temp/
+
+# Cleanup scripts (one-time use, don't commit)
+cleanup-git.sh
+cleanup-git-history.sh
+check-github-status.sh
+GIT_CLEANUP_GUIDE.md
+
+# Debug/temporary scripts
+debug-guide.sh
+fix-admin-upload.js
+test-video-fix.sh
+
+# Test scripts with credentials (optional - uncomment to exclude all test scripts)
+# test-*.sh
+# test-*.jslearnai-frontend/dist/
+learnai-frontend/.next/
+learnai-frontend/out/
+node_modules/
 
 docs/
+AI_Course_Lab_Studio/docs
+
+node_modules/
+dist/
+build/
+.env
+*.log
+*.mp4
+*.zip

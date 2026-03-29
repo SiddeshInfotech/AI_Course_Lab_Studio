@@ -15,6 +15,7 @@ import {
     deleteLesson,
 } from "../models/courseModel.js";
 import prisma from "../config/db.js";
+import { uploadFile, getPublicUrl } from "../config/storage.js";
 
 // Helper function for URL validation
 const isValidUrl = (string) => {
@@ -286,7 +287,21 @@ export const addLesson = async (req, res) => {
         const course = await getCourseById(courseId);
         if (!course) return res.status(404).json({ message: "Course not found" });
 
-        const { title, description, content, videoUrl, orderIndex, duration } = req.body;
+        const {
+            title,
+            description,
+            content,
+            videoUrl,
+            videoUrlEnglish,
+            videoUrlHindi,
+            videoUrlMarathi,
+            orderIndex,
+            duration,
+            section,
+            sectionTitle,
+            type,
+            objectives,
+        } = req.body;
 
         if (!title || orderIndex === undefined) {
             return res.status(400).json({ message: "Title and orderIndex are required" });
@@ -298,8 +313,15 @@ export const addLesson = async (req, res) => {
             description: description || null,
             content: content || null,
             videoUrl: videoUrl || null,
+            videoUrlEnglish: videoUrlEnglish || videoUrl || null,
+            videoUrlHindi: videoUrlHindi || null,
+            videoUrlMarathi: videoUrlMarathi || null,
             orderIndex,
             duration: duration || null,
+            section: section || null,
+            sectionTitle: sectionTitle || null,
+            type: type || "video",
+            objectives: objectives || null,
         });
 
         res.status(201).json(lesson);
@@ -318,15 +340,36 @@ export const editLesson = async (req, res) => {
         const existing = await getLessonById(lessonId);
         if (!existing) return res.status(404).json({ message: "Lesson not found" });
 
-        const { title, description, content, videoUrl, orderIndex, duration } = req.body;
+        const {
+            title,
+            description,
+            content,
+            videoUrl,
+            videoUrlEnglish,
+            videoUrlHindi,
+            videoUrlMarathi,
+            orderIndex,
+            duration,
+            section,
+            sectionTitle,
+            type,
+            objectives,
+        } = req.body;
 
         const updated = await updateLesson(lessonId, {
             ...(title && { title }),
             ...(description !== undefined && { description }),
             ...(content !== undefined && { content }),
             ...(videoUrl !== undefined && { videoUrl }),
+            ...(videoUrlEnglish !== undefined && { videoUrlEnglish }),
+            ...(videoUrlHindi !== undefined && { videoUrlHindi }),
+            ...(videoUrlMarathi !== undefined && { videoUrlMarathi }),
             ...(orderIndex !== undefined && { orderIndex }),
             ...(duration !== undefined && { duration }),
+            ...(section !== undefined && { section }),
+            ...(sectionTitle !== undefined && { sectionTitle }),
+            ...(type !== undefined && { type }),
+            ...(objectives !== undefined && { objectives }),
         });
 
         res.json(updated);
@@ -560,5 +603,105 @@ export const updateCourseStatus = async (req, res) => {
     } catch (error) {
         console.error("Update course status error:", error);
         res.status(500).json({ message: "Failed to update course status" });
+    }
+};
+
+/**
+ * POST /api/courses/:courseId/lessons/:lessonId/upload-video
+ * Upload a video for a specific lesson with language support
+ * Body: { language: "english" | "hindi" | "marathi" }
+ * File: video file
+ */
+export const uploadLessonVideo = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: "No video file provided" });
+        }
+
+        const { courseId, lessonId } = req.params;
+        const { language } = req.body;
+
+        // Validate parameters
+        if (!courseId || !lessonId) {
+            return res.status(400).json({ message: "Course ID and Lesson ID are required" });
+        }
+
+        const validLanguages = ["english", "hindi", "marathi"];
+        if (!language || !validLanguages.includes(language)) {
+            return res.status(400).json({
+                message: "Invalid language. Allowed values: english, hindi, marathi"
+            });
+        }
+
+        const courseIdNum = parseInt(courseId);
+        const lessonIdNum = parseInt(lessonId);
+
+        if (isNaN(courseIdNum) || isNaN(lessonIdNum)) {
+            return res.status(400).json({ message: "Invalid course or lesson ID" });
+        }
+
+        // Verify course exists
+        const course = await getCourseById(courseIdNum);
+        if (!course) {
+            return res.status(404).json({ message: "Course not found" });
+        }
+
+        // Verify lesson exists and belongs to course
+        const lesson = await getLessonById(lessonIdNum);
+        if (!lesson || lesson.courseId !== courseIdNum) {
+            return res.status(404).json({ message: "Lesson not found in this course" });
+        }
+
+        // Upload video to storage
+        console.log(`📤 Uploading ${language} video for lesson ${lessonIdNum}...`);
+
+        const file = req.file;
+        const videoResult = await uploadFile(
+            file.buffer,
+            `lesson-${lessonIdNum}-${language}-${Date.now()}.mp4`,
+            {
+                type: 'videos',
+                contentType: file.mimetype
+            }
+        );
+
+        if (!videoResult || !videoResult.url) {
+            return res.status(500).json({ message: "Failed to upload video to storage" });
+        }
+
+        // Map language to field name
+        const fieldMap = {
+            english: 'videoUrlEnglish',
+            hindi: 'videoUrlHindi',
+            marathi: 'videoUrlMarathi'
+        };
+
+        const fieldName = fieldMap[language];
+
+        // Update lesson with new video URL
+        const updatedLesson = await updateLesson(lessonIdNum, {
+            [fieldName]: videoResult.url,
+            // Also update the main videoUrl field for backward compatibility
+            ...(language === 'english' && { videoUrl: videoResult.url })
+        });
+
+        console.log(`✅ ${language.charAt(0).toUpperCase() + language.slice(1)} video uploaded for lesson ${lessonIdNum}`);
+
+        res.status(200).json({
+            message: `${language.charAt(0).toUpperCase() + language.slice(1)} video uploaded successfully`,
+            lesson: updatedLesson,
+            video: {
+                language,
+                url: videoResult.url,
+                size: file.size,
+                fieldName
+            }
+        });
+    } catch (error) {
+        console.error("❌ Upload lesson video error:", error);
+        res.status(500).json({
+            message: error.message || "Failed to upload video",
+            error: process.env.NODE_ENV === 'development' ? error : undefined
+        });
     }
 };

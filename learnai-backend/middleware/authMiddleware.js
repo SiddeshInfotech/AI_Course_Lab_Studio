@@ -20,7 +20,17 @@ const authMiddleware = (req, res, next) => {
 
         try {
             const decoded = verifyToken(token);
-            req.user = decoded;
+            const normalizedUser = { ...decoded };
+
+            if (normalizedUser.userId == null && normalizedUser.id != null) {
+                normalizedUser.userId = normalizedUser.id;
+            }
+
+            if (normalizedUser.id == null && normalizedUser.userId != null) {
+                normalizedUser.id = normalizedUser.userId;
+            }
+
+            req.user = normalizedUser;
             next();
         } catch (jwtError) {
             // Provide specific error information for debugging

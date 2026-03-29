@@ -8,6 +8,7 @@ import {
     addUser,
     toggleAdmin,
     removeUser,
+    updateUser,
 } from "../controllers/adminController.js";
 // Course management is handled by courseRoutes.js
 import {
@@ -42,6 +43,7 @@ router.get("/users", listUsers);
 router.get("/users/:id", getUser);
 router.get("/users/:id/detailed", getUserDetailed);
 router.post("/users", addUser);
+router.patch("/users/:id", updateUser);
 router.patch("/users/:id/admin", toggleAdmin);
 router.delete("/users/:id", removeUser);
 

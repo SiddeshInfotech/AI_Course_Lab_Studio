@@ -65,6 +65,7 @@ export const getUserDetailed = async (req, res) => {
                 dob: true,
                 isAdmin: true,
                 created_at: true,
+                centerId: true,
                 enrollments: {
                     select: {
                         courseId: true,
@@ -201,6 +202,97 @@ export const removeUser = async (req, res) => {
         res.json({ message: "User deleted" });
     } catch (error) {
         console.error("Remove user error:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+// Update user (edit student)
+export const updateUser = async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        const { name, email, rollNumber, dob, centerId, courseIds } = req.body;
+
+        // Check if user exists
+        const existingUser = await prisma.user.findUnique({
+            where: { id }
+        });
+
+        if (!existingUser) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // Update user data
+        const updateData = {};
+        if (name !== undefined) updateData.name = name;
+        if (email !== undefined) updateData.email = email || null;
+        if (rollNumber !== undefined) updateData.rollNumber = rollNumber || null;
+        if (dob !== undefined) updateData.dob = dob ? new Date(dob) : null;
+        if (centerId !== undefined) updateData.centerId = centerId ? parseInt(centerId) : null;
+
+        // Update user and enrollments in a transaction
+        const result = await prisma.$transaction(async (tx) => {
+            // Update user
+            const user = await tx.user.update({
+                where: { id },
+                data: updateData
+            });
+
+            // Handle course enrollments if provided
+            if (courseIds !== undefined) {
+                // Remove existing enrollments
+                await tx.enrollment.deleteMany({
+                    where: { userId: id }
+                });
+
+                // Add new enrollments
+                if (courseIds.length > 0) {
+                    const enrollmentData = courseIds
+                        .filter(courseId => Number.isInteger(courseId) && courseId > 0)
+                        .map(courseId => ({
+                            userId: id,
+                            courseId
+                        }));
+
+                    if (enrollmentData.length > 0) {
+                        await tx.enrollment.createMany({
+                            data: enrollmentData,
+                            skipDuplicates: true
+                        });
+                    }
+                }
+            }
+
+            // Get updated user with center info
+            const updatedUser = await tx.user.findUnique({
+                where: { id },
+                include: {
+                    center: {
+                        select: {
+                            centerName: true,
+                            centerCode: true
+                        }
+                    }
+                }
+            });
+
+            return updatedUser;
+        });
+
+        res.json({
+            message: "User updated successfully",
+            user: {
+                id: result.id,
+                name: result.name,
+                username: result.username,
+                email: result.email,
+                rollNumber: result.rollNumber,
+                dob: result.dob,
+                centerId: result.centerId,
+                center: result.center
+            }
+        });
+    } catch (error) {
+        console.error("Update user error:", error);
         res.status(500).json({ message: "Internal server error" });
     }
 };

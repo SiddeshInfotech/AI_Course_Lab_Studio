@@ -4,6 +4,8 @@ import {
   getLesson,
   completeLesson,
   setCurrentLesson,
+  setLanguagePreference,
+  getLanguagePreference,
 } from "../controllers/learningController.js";
 import {
   getCourseTools,
@@ -24,6 +26,10 @@ router.get("/lesson/:lessonId", getLesson);
 router.post("/lesson/:lessonId/complete", completeLesson);
 router.get("/:courseId/curriculum", getCurriculum);
 router.put("/:courseId/current-lesson", setCurrentLesson);
+
+// Language preference routes
+router.post("/:courseId/language", setLanguagePreference);
+router.get("/:courseId/language", getLanguagePreference);
 
 // Tool course routes - get tools for a course with user progress
 router.get("/:courseId/tools", getCourseTools);

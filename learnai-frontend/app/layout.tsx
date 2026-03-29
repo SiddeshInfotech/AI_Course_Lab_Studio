@@ -1,17 +1,7 @@
 import type { Metadata } from "next";
-import { Nunito, Playfair_Display } from "next/font/google";
 import { AuthProvider } from "@/hooks/useAuth";
+import ProtectionWrapper from "@/components/ProtectionWrapper";
 import "./globals.css";
-
-const nunito = Nunito({
-  subsets: ["latin"],
-  variable: "--font-nunito",
-});
-
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  variable: "--font-playfair",
-});
 
 export const metadata: Metadata = {
   title: "Learn AI - Learning Management System",
@@ -24,9 +14,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${nunito.variable} ${playfair.variable}`}>
+    <html lang="en">
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ProtectionWrapper>{children}</ProtectionWrapper>
+        </AuthProvider>
       </body>
     </html>
   );

@@ -5,6 +5,7 @@ import {
   markLessonComplete,
   updateCurrentLesson,
 } from "../models/learningModel.js";
+import prisma from "../config/db.js";
 
 /**
  * GET /api/learning/:courseId/curriculum
@@ -101,6 +102,83 @@ export const setCurrentLesson = async (req, res) => {
     });
   } catch (error) {
     console.error("Set current lesson error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/learning/:courseId/language
+ * Set language preference for a course
+ * Body: { language: "english" | "hindi" | "marathi" }
+ */
+export const setLanguagePreference = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const { language } = req.body;
+    const userId = req.user.userId;
+
+    // Validate language
+    const validLanguages = ["english", "hindi", "marathi"];
+    if (!language || !validLanguages.includes(language)) {
+      return res.status(400).json({
+        message: "Invalid language. Allowed values: english, hindi, marathi"
+      });
+    }
+
+    // Create or update language preference
+    const preference = await prisma.userLanguagePreference.upsert({
+      where: {
+        userId_courseId: {
+          userId: parseInt(userId),
+          courseId: parseInt(courseId),
+        },
+      },
+      update: {
+        language,
+      },
+      create: {
+        userId: parseInt(userId),
+        courseId: parseInt(courseId),
+        language,
+      },
+    });
+
+    console.log(`✅ Language preference set to ${language} for user ${userId} on course ${courseId}`);
+
+    res.json({
+      message: "Language preference updated",
+      preference,
+    });
+  } catch (error) {
+    console.error("Set language preference error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
+ * GET /api/learning/:courseId/language
+ * Get language preference for a course
+ */
+export const getLanguagePreference = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const userId = req.user.userId;
+
+    const preference = await prisma.userLanguagePreference.findUnique({
+      where: {
+        userId_courseId: {
+          userId: parseInt(userId),
+          courseId: parseInt(courseId),
+        },
+      },
+    });
+
+    res.json({
+      language: preference?.language || "english",
+      preference,
+    });
+  } catch (error) {
+    console.error("Get language preference error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };

@@ -10,6 +10,7 @@ import {
     getStorageUsed,
     getSignedMediaUrl,
 } from "../models/mediaModel.js";
+import prisma from "../config/db.js";
 import {
     generateSignedMediaUrl,
     generateWatermarkedUrl,
@@ -19,6 +20,9 @@ import {
     isUrlRevoked
 } from "../utils/signedUrlService.js";
 import { getSignedUrl, getPublicUrl } from "../config/storage.js";
+import fs from "fs";
+import path from "path";
+import { getFilePath, getLocalClient } from "../config/localStorage.js";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
@@ -29,6 +33,92 @@ const ALLOWED_TYPES = {
 };
 
 const ALL_ALLOWED_TYPES = [...ALLOWED_TYPES.video, ...ALLOWED_TYPES.image, ...ALLOWED_TYPES.document];
+
+const LOCAL_MIME_TYPES = {
+    ".avi": "video/x-msvideo",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".gif": "image/gif",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".ogg": "video/ogg",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".webm": "video/webm",
+    ".webp": "image/webp",
+    ".wmv": "video/x-ms-wmv",
+};
+
+const getLocalUploadsRoot = () => path.resolve(getLocalClient().basePath);
+
+const isPathInsideRoot = (candidatePath, rootPath) =>
+    candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${path.sep}`);
+
+const resolveLocalSignedFilePath = (payload) => {
+    const uploadsRoot = getLocalUploadsRoot();
+
+    // Prefer the storage key because it is stable even if the upload root changes.
+    if (typeof payload.key === "string" && payload.key.trim()) {
+        const resolvedFromKey = path.resolve(getFilePath(payload.key));
+        if (isPathInsideRoot(resolvedFromKey, uploadsRoot)) {
+            return resolvedFromKey;
+        }
+    }
+
+    if (typeof payload.path !== "string" || !payload.path.trim()) {
+        return null;
+    }
+
+    const resolvedFromPath = path.isAbsolute(payload.path)
+        ? path.resolve(payload.path)
+        : path.resolve(uploadsRoot, payload.path);
+
+    return isPathInsideRoot(resolvedFromPath, uploadsRoot) ? resolvedFromPath : null;
+};
+
+const getLocalContentType = (filePath) =>
+    LOCAL_MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+
+const streamLocalSignedFile = (req, res, filePath, contentType) => {
+    const stats = fs.statSync(filePath);
+    const range = req.headers.range;
+
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Accept-Ranges", "bytes");
+
+    if (!range) {
+        res.setHeader("Content-Length", stats.size);
+        fs.createReadStream(filePath).pipe(res);
+        return;
+    }
+
+    const [startValue, endValue] = range.replace(/bytes=/, "").split("-");
+    const start = Number.parseInt(startValue, 10);
+    const end = endValue ? Number.parseInt(endValue, 10) : stats.size - 1;
+
+    if (
+        Number.isNaN(start) ||
+        Number.isNaN(end) ||
+        start < 0 ||
+        end >= stats.size ||
+        start > end
+    ) {
+        res.status(416).setHeader("Content-Range", `bytes */${stats.size}`);
+        res.end();
+        return;
+    }
+
+    const chunkSize = end - start + 1;
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${stats.size}`);
+    res.setHeader("Content-Length", chunkSize);
+
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+};
 
 export const uploadFile = async (req, res) => {
     try {
@@ -251,7 +341,68 @@ export const listMedia = async (req, res) => {
         });
     } catch (error) {
         console.error("List media error:", error);
-        res.status(500).json({ message: "Internal server error" });
+        // Backward-compatible fallback for older Media table schemas.
+        // Some deployments still have the original BYTEA-based Media table.
+        try {
+            const limit = parseInt(req.query.limit) || 50;
+            const offset = parseInt(req.query.offset) || 0;
+
+            const [legacyMedia, totalRows, storageRows] = await Promise.all([
+                prisma.$queryRaw`
+                    SELECT
+                        "id",
+                        "filename",
+                        "mimeType",
+                        "size",
+                        "uploadedBy",
+                        "entityType",
+                        "entityId",
+                        "createdAt"
+                    FROM "Media"
+                    ORDER BY "createdAt" DESC
+                    LIMIT ${limit}
+                    OFFSET ${offset}
+                `,
+                prisma.$queryRaw`SELECT COUNT(*)::int AS total FROM "Media"`,
+                prisma.$queryRaw`SELECT COALESCE(SUM("size"), 0)::bigint AS storage FROM "Media"`,
+            ]);
+
+            const total =
+                Array.isArray(totalRows) && totalRows.length > 0
+                    ? Number(totalRows[0].total || 0)
+                    : 0;
+            const storageUsed =
+                Array.isArray(storageRows) && storageRows.length > 0
+                    ? Number(storageRows[0].storage || 0)
+                    : 0;
+
+            const media = Array.isArray(legacyMedia)
+                ? legacyMedia.map((m) => ({
+                    ...m,
+                    url: `/api/media/${m.id}`,
+                    storageType: "legacy-db",
+                    storageKey: null,
+                    thumbnailStorageKey: null,
+                    thumbnailUrl: null,
+                    originalSize: null,
+                    compressionRatio: null,
+                    processingTime: null,
+                    isCompressed: false,
+                }))
+                : [];
+
+            return res.json({
+                media,
+                pagination: { total, limit, offset },
+                storageUsed,
+                storageUsedFormatted: formatBytes(storageUsed),
+                warning:
+                    "Using legacy media schema fallback. Run latest Prisma migrations to enable full media features.",
+            });
+        } catch (fallbackError) {
+            console.error("List media fallback error:", fallbackError);
+            res.status(500).json({ message: "Internal server error" });
+        }
     }
 };
 
@@ -408,6 +559,42 @@ export const getSignedMedia = async (req, res) => {
         const clientIp = req.ip;
         const userAgent = req.headers['user-agent'];
 
+        // First try to verify as a local storage JWT (simpler format with key/path)
+        const jwt = await import('jsonwebtoken');
+        let payload;
+        try {
+            payload = jwt.default.verify(token, process.env.JWT_SECRET || 'default-secret', {
+                algorithms: ['HS256']
+            });
+        } catch (jwtError) {
+            console.error("JWT verification failed:", jwtError.message);
+            return res.status(401).json({
+                message: "Invalid or expired signed URL",
+                error: jwtError.name
+            });
+        }
+
+        // Check if this is a local storage JWT (identified by storage key).
+        if (payload.key) {
+            const fullPath = resolveLocalSignedFilePath(payload);
+
+            if (!fullPath) {
+                return res.status(403).json({ message: "Access denied - invalid path" });
+            }
+
+            if (!fs.existsSync(fullPath)) {
+                return res.status(404).json({ message: "Media file not found" });
+            }
+
+            const contentType = getLocalContentType(fullPath);
+
+            console.log(`Signed media access: File ${payload.key} accessed via signed URL`);
+
+            streamLocalSignedFile(req, res, fullPath, contentType);
+            return;
+        }
+
+        // Otherwise try to verify as signedUrlService JWT (has mediaId/userId/nonce)
         const verification = verifySignedMediaUrl(token, {
             clientIp,
             userAgent
@@ -451,6 +638,7 @@ export const getSignedMedia = async (req, res) => {
 
     } catch (error) {
         console.error("Signed media access error:", error);
+        console.error("Error stack:", error.stack);
         res.status(500).json({ message: "Failed to access signed media" });
     }
 };

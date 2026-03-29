@@ -17,14 +17,20 @@ model User {
   dob            DateTime?        // Date of birth
   isAdmin        Boolean          @default(false)
   created_at     DateTime         @default(now())
+  centerId       Int?
+  center         Center?          @relation(fields: [centerId], references: [id])
   enrollments    Enrollment[]
   sessions       Session[]
   dailyUsage     DailyUsage[]
   courseProgress CourseProgress[]
   lessonProgress LessonProgress[]
   toolProgress   ToolProgress[]
+  encryptedVideos EncryptedVideo[]
+  licenses        UserLicense[]
+  securityAlerts  SecurityAlert[] @relation("SecurityAlerts")
+  reviewedAlerts  SecurityAlert[] @relation("ReviewedAlerts")
+  languagePreferences UserLanguagePreference[]
 }
-
 model Session {
   id               String    @id @default(cuid())
   userId           Int
@@ -56,25 +62,29 @@ model Course {
   lessons     Lesson[]
   progress    CourseProgress[]
   toolCourses ToolCourse[]
+  languagePreferences UserLanguagePreference[]
 }
 
 model Lesson {
-  id             Int              @id @default(autoincrement())
-  courseId       Int
-  title          String
-  description    String?
-  content        String? // lesson content/material
-  videoUrl       String?
-  orderIndex     Int // position in course (1, 2, 3...)
-  duration       String? // e.g. "15 minutes"
-  section        String? // e.g. "Day 1", "Week 1", "Module 1"
-  sectionTitle   String? // e.g. "Foundations of Neural Networks"
-  type           String           @default("video") // video, quiz, exercise, reading
-  objectives     String? // JSON array of learning objectives
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  course         Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessonProgress LessonProgress[]
+  id               Int              @id @default(autoincrement())
+  courseId         Int
+  title            String
+  description      String?
+  content          String? // lesson content/material
+  videoUrl         String? // DEPRECATED - use language-specific URLs
+  videoUrlEnglish  String? // English version video URL
+  videoUrlHindi    String? // Hindi version video URL
+  videoUrlMarathi  String? // Marathi version video URL
+  orderIndex       Int // position in course (1, 2, 3...)
+  duration         String? // e.g. "15 minutes"
+  section          String? // e.g. "Day 1", "Week 1", "Module 1"
+  sectionTitle     String? // e.g. "Foundations of Neural Networks"
+  type             String           @default("video") // video, quiz, exercise, reading
+  objectives       String? // JSON array of learning objectives
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  course           Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessonProgress   LessonProgress[]
 
   @@unique([courseId, orderIndex])
   @@index([courseId])
@@ -190,6 +200,21 @@ model LessonProgress {
   @@index([lessonId])
 }
 
+model UserLanguagePreference {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  courseId  Int
+  language  String   @default("english") // english, hindi, marathi
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+}
+
 model Media {
   id               Int       @id @default(autoincrement())
   filename         String    // original filename
@@ -219,4 +244,115 @@ model Media {
 
   @@index([entityType, entityId])
   @@index([mimeType])
+}
+
+model EncryptedVideo {
+  id                 Int      @id @default(autoincrement())
+  videoId            String   @unique
+  title              String
+  encryptedFileName  String
+  encryptedFilePath  String
+  originalMimeType   String
+  fileSize           Int      // original file size
+  encryptedFileSize  Int      // encrypted file size
+  fileHash           String   @db.VarChar(64) // SHA-256 hash
+  courseId           Int?
+  lessonId           Int?
+  uploadedBy         Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  accessLogs         VideoAccessLog[]
+
+  @@index([videoId])
+  @@index([courseId])
+  @@index([lessonId])
+  @@map("encrypted_videos")
+}
+
+model UserLicense {
+  id                Int      @id @default(autoincrement())
+  licenseKey        String   @unique @db.VarChar(500)
+  userId            Int
+  courseId          Int?
+  deviceId          String?  // Bound to specific device
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
+  createdBy         Int
+  generatedBy       String   @default("ADMIN") // ADMIN | SYSTEM | AUTO
+  revokedAt         DateTime?
+  revokedBy         Int?
+  revokedReason     String?
+  extendedAt        DateTime?
+  extendedBy        Int?
+  lastValidatedAt   DateTime?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([licenseKey])
+  @@index([deviceId])
+  @@index([expiresAt])
+  @@map("user_licenses")
+}
+
+model VideoAccessLog {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  videoId           Int
+  deviceId          String?
+  licenseId         Int?
+  accessTime        DateTime @default(now())
+  userAgent         String?
+  ipAddress         String?
+  encryptedVideo    EncryptedVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([videoId])
+  @@index([deviceId])
+  @@index([accessTime])
+  @@map("video_access_logs")
+}
+
+model SecurityAlert {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  activityType  String    @db.VarChar(100)
+  severity      String    @default("medium") @db.VarChar(20)
+  details       Json?
+  reviewed      Boolean   @default(false)
+  reviewedAt    DateTime?
+  reviewedBy    Int?
+  adminNotes    String?   @db.Text
+  action        String?   @db.VarChar(50)
+  timestamp     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  user          User      @relation("SecurityAlerts", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer      User?     @relation("ReviewedAlerts", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([timestamp])
+  @@index([reviewed])
+  @@index([severity])
+  @@index([activityType])
+}
+
+model Center {
+  id                  Int       @id @default(autoincrement())
+  centerName          String
+  schoolName          String
+  centerCode          String    @unique
+  contactPerson       String
+  phoneNumber         String
+  email               String
+  address             String?
+  boardOrCurriculum   String?
+  centerAdminId       String    @unique
+  centerAdminPassword  String
+  status              String    @default("Active")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  users               User[]
+
+  @@map("centers")
 }

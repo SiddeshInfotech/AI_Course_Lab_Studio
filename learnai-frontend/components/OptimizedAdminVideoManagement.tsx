@@ -238,6 +238,7 @@ export default function OptimizedAdminVideoManagement() {
   const [uploadCourse, setUploadCourse] = useState<number | "">("");
   const [uploadLesson, setUploadLesson] = useState<number | "">("");
   const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadLanguage, setUploadLanguage] = useState<"english" | "hindi" | "marathi">("english");
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -349,6 +350,7 @@ export default function OptimizedAdminVideoManagement() {
     setUploadCourse("");
     setUploadLesson("");
     setUploadTitle("");
+    setUploadLanguage("english");
     setReplaceExisting(false);
     setUploading(false);
     setChunkedUpload({
@@ -448,30 +450,63 @@ export default function OptimizedAdminVideoManagement() {
     try {
       let response;
 
-      // Use chunked upload for large files (>50MB)
-      if (uploadFile.size > 50 * 1024 * 1024) {
-        response = await performChunkedUpload(uploadFile);
-      } else {
-        // Regular upload for smaller files
-        response = await api.admin.videos.upload({
-          videoFile: uploadFile,
-          courseId: typeof uploadCourse === 'number' ? uploadCourse : undefined,
-          lessonId: typeof uploadLesson === 'number' ? uploadLesson : undefined,
-          title: uploadTitle || undefined,
-          replaceExisting,
-        });
-      }
-
-      // Show success message with optimization stats
-      if (response.optimization) {
-        const { originalSizeMB, compressedSizeMB, spaceSavedMB, compressionRatio, processingTime } = response.optimization;
-        alert(
-          `Video uploaded successfully!\n\n` +
-          `Original size: ${originalSizeMB}MB\n` +
-          `Compressed size: ${compressedSizeMB}MB\n` +
-          `Space saved: ${spaceSavedMB}MB (${100 - compressionRatio}%)\n` +
-          `Processing time: ${formatTime(processingTime)}`
+      // If lesson and language are selected, use language-specific endpoint
+      if (typeof uploadLesson === 'number' && uploadLesson > 0) {
+        const token = localStorage.getItem("token");
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api";
+        
+        const formData = new FormData();
+        formData.append("video", uploadFile);
+        formData.append("language", uploadLanguage);
+        
+        const response = await fetch(
+          `${API_BASE_URL}/courses/${uploadCourse}/lessons/${uploadLesson}/upload-video`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+            },
+            body: formData,
+          }
         );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: "Upload failed" }));
+          throw new Error(errorData.message || "Failed to upload video");
+        }
+
+        const result = await response.json();
+        alert(
+          `${uploadLanguage.charAt(0).toUpperCase() + uploadLanguage.slice(1)} video uploaded successfully!\n\n` +
+          `Lesson: ${lessons.find(l => l.id === uploadLesson)?.title || 'Unknown'}\n` +
+          `Language: ${uploadLanguage}`
+        );
+      } else {
+        // Use chunked upload for large files (>50MB)
+        if (uploadFile.size > 50 * 1024 * 1024) {
+          response = await performChunkedUpload(uploadFile);
+        } else {
+          // Regular upload for smaller files
+          response = await api.admin.videos.upload({
+            videoFile: uploadFile,
+            courseId: typeof uploadCourse === 'number' ? uploadCourse : undefined,
+            lessonId: typeof uploadLesson === 'number' ? uploadLesson : undefined,
+            title: uploadTitle || undefined,
+            replaceExisting,
+          });
+        }
+
+        // Show success message with optimization stats
+        if (response.optimization) {
+          const { originalSizeMB, compressedSizeMB, spaceSavedMB, compressionRatio, processingTime } = response.optimization;
+          alert(
+            `Video uploaded successfully!\n\n` +
+            `Original size: ${originalSizeMB}MB\n` +
+            `Compressed size: ${compressedSizeMB}MB\n` +
+            `Space saved: ${spaceSavedMB}MB (${100 - compressionRatio}%)\n` +
+            `Processing time: ${formatTime(processingTime)}`
+          );
+        }
       }
 
       setActiveModal(null);
@@ -965,6 +1000,27 @@ export default function OptimizedAdminVideoManagement() {
                       </option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {/* Video Language Selection */}
+              {uploadLesson && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Video Language *
+                  </label>
+                  <select
+                    value={uploadLanguage}
+                    onChange={(e) => setUploadLanguage(e.target.value as "english" | "hindi" | "marathi")}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="english">English</option>
+                    <option value="hindi">Hindi</option>
+                    <option value="marathi">Marathi</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select the language of this video. You can upload videos in other languages for the same lesson.
+                  </p>
                 </div>
               )}
 

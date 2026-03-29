@@ -95,22 +95,41 @@ export const login = async (req, res) => {
         // validation
         if (!loginUsername || !password) {
             console.log("❌ Missing credentials");
-            return res.status(400).json({ message: "All fields required" });
+            return res.status(400).json({ message: "Username and password are required" });
+        }
+
+        // Additional validation
+        if (typeof password !== "string" || password.length === 0) {
+            console.log("❌ Invalid password format");
+            return res.status(400).json({ message: "Invalid password format" });
         }
 
         console.log("🔍 Looking up user:", loginUsername);
+
+        // Ensure we only find users with valid usernames
         const user = await prisma.user.findFirst({
             where: {
                 OR: [
                     { username: loginUsername },
                     { email: loginUsername },
                 ],
+                AND: {
+                    NOT: {
+                        username: ""
+                    }
+                }
             },
         });
 
         if (!user) {
             console.log("❌ User not found");
             return res.status(400).json({ message: "Invalid credentials" });
+        }
+
+        // Additional safety check
+        if (!user.password || user.password.length === 0) {
+            console.log("❌ User has no password set");
+            return res.status(500).json({ message: "Account configuration error. Please contact administrator." });
         }
 
         console.log("✅ User found:", user.username);

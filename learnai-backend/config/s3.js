@@ -24,23 +24,27 @@ export const generateS3Key = (originalName, entityType = "media") => {
     return `${entityType}/${timestamp}-${uuid}${ext}`;
 };
 
-export const multerS3Storage = multerS3({
-    s3: s3Client,
-    bucket: bucket,
-    contentType: multerS3.AUTO_CONTENT_TYPE,
-    metadata: function (req, file, cb) {
-        cb(null, {
-            fieldName: file.fieldname,
-            originalName: file.originalname,
-            mimetype: file.mimetype,
-            uploadDate: new Date().toISOString(),
-        });
-    },
-    key: function (req, file, cb) {
-        const key = generateS3Key(file.originalname, "videos");
-        cb(null, key);
-    },
-});
+// Do not initialize multer-s3 when bucket is missing, otherwise startup crashes
+// even when storage type is not S3.
+export const multerS3Storage = bucket
+    ? multerS3({
+        s3: s3Client,
+        bucket: bucket,
+        contentType: multerS3.AUTO_CONTENT_TYPE,
+        metadata: function (req, file, cb) {
+            cb(null, {
+                fieldName: file.fieldname,
+                originalName: file.originalname,
+                mimetype: file.mimetype,
+                uploadDate: new Date().toISOString(),
+            });
+        },
+        key: function (req, file, cb) {
+            const key = generateS3Key(file.originalname, "videos");
+            cb(null, key);
+        },
+    })
+    : null;
 
 export const getPublicUrl = (key) => {
     return `https://${bucket}.s3.${process.env.AWS_REGION || "ap-southeast-1"}.amazonaws.com/${key}`;

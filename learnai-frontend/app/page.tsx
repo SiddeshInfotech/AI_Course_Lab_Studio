@@ -6,6 +6,22 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
 
+const CENTER_ID = "center";
+const CENTER_PASSWORD = "center123";
+const CENTER_SESSION_KEY = "centerSession";
+const CENTER_LIST_STORAGE_KEY = "adminCenters";
+const CENTER_AUTH_STORAGE_KEY = "centerAuth";
+
+interface CenterLoginRecord {
+  id: string;
+  centerName: string;
+  schoolName: string;
+  centerCode: string;
+  centerAdminId: string;
+  centerAdminPassword: string;
+  status: "Active" | "Inactive";
+}
+
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("");
@@ -20,6 +36,105 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setIsLoading(true);
+
+    const normalizedUsername = username.trim().toLowerCase();
+    try {
+      const rawCenters = localStorage.getItem(CENTER_LIST_STORAGE_KEY);
+      if (rawCenters) {
+        const parsedCenters = JSON.parse(rawCenters) as unknown;
+        const centerList = Array.isArray(parsedCenters)
+          ? (parsedCenters as Array<Partial<CenterLoginRecord> | null>)
+          : [];
+
+        const matchedCenter = centerList.find(
+          (center) =>
+            typeof center?.centerAdminId === "string" &&
+            typeof center?.centerAdminPassword === "string" &&
+            center.centerAdminId.trim().toLowerCase() === normalizedUsername &&
+            center.centerAdminPassword === password &&
+            center.status === "Active",
+        );
+
+        if (matchedCenter) {
+          localStorage.setItem(CENTER_SESSION_KEY, "true");
+          localStorage.setItem(
+            CENTER_AUTH_STORAGE_KEY,
+            JSON.stringify({
+              centerId: matchedCenter.id ?? "legacy-center",
+              centerCode: matchedCenter.centerCode ?? "CENTER",
+              centerName: matchedCenter.centerName ?? "LearnAI Center",
+              schoolName: matchedCenter.schoolName ?? "Sunrise Public School",
+              adminId: matchedCenter.centerAdminId,
+            }),
+          );
+
+          // Load students for this specific center
+          try {
+            const allStudentsRaw = localStorage.getItem("centerStudents");
+            if (allStudentsRaw) {
+              const allStudents = JSON.parse(allStudentsRaw);
+              const centerSpecificStudents = Array.isArray(allStudents)
+                ? allStudents.filter(
+                    (s: any) => s.centerId === matchedCenter.id,
+                  )
+                : allStudents;
+              localStorage.setItem(
+                "centerStudents",
+                JSON.stringify(centerSpecificStudents),
+              );
+            } else {
+              // Initialize empty student array if none exists
+              localStorage.setItem("centerStudents", JSON.stringify([]));
+            }
+          } catch (err) {
+            console.error("Failed to load center students:", err);
+            localStorage.setItem("centerStudents", JSON.stringify([]));
+          }
+
+          router.push("/center");
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("Center login lookup failed:", err);
+    }
+
+    if (normalizedUsername === CENTER_ID && password === CENTER_PASSWORD) {
+      localStorage.setItem(CENTER_SESSION_KEY, "true");
+      localStorage.setItem(
+        CENTER_AUTH_STORAGE_KEY,
+        JSON.stringify({
+          centerId: "legacy-center",
+          centerCode: "CENTER",
+          centerName: "LearnAI Center",
+          schoolName: "Sunrise Public School",
+          adminId: CENTER_ID,
+        }),
+      );
+
+      // Load students for legacy center
+      try {
+        const allStudentsRaw = localStorage.getItem("centerStudents");
+        if (allStudentsRaw) {
+          const allStudents = JSON.parse(allStudentsRaw);
+          const centerSpecificStudents = Array.isArray(allStudents)
+            ? allStudents.filter((s: any) => s.centerId === "legacy-center")
+            : allStudents;
+          localStorage.setItem(
+            "centerStudents",
+            JSON.stringify(centerSpecificStudents),
+          );
+        } else {
+          localStorage.setItem("centerStudents", JSON.stringify([]));
+        }
+      } catch (err) {
+        console.error("Failed to load center students:", err);
+        localStorage.setItem("centerStudents", JSON.stringify([]));
+      }
+
+      router.push("/center");
+      return;
+    }
 
     const result = await login(username, password);
 
@@ -37,8 +152,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4 relative font-sans">
-      <div className="w-full max-w-md rounded-3xl bg-gradient-to-br from-indigo-200 via-purple-100 to-indigo-50 p-[1px] shadow-2xl shadow-indigo-500/10">
+    <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-white to-indigo-50 flex items-center justify-center p-4 relative font-sans">
+      <div className="w-full max-w-md rounded-3xl bg-gradient-to-br from-cyan-200 via-indigo-100 to-slate-100 p-[1px] shadow-2xl shadow-cyan-500/10">
         <div className="bg-white w-full h-full rounded-[23px] p-8 md:p-10">
           <div className="flex flex-col items-center mb-8">
             <div className="flex flex-col items-center text-center">

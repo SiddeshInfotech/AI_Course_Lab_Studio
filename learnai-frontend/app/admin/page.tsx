@@ -6,6 +6,7 @@ import {
   Users,
   Video,
   BookOpen,
+  Building2,
   Settings,
   Upload,
   Search,
@@ -31,7 +32,13 @@ import { ApiResponseError, api } from "@/lib/api";
 import AdminCourseManagement from "@/components/AdminCourseManagement";
 import OptimizedAdminVideoManagement from "@/components/OptimizedAdminVideoManagement";
 
-type Section = "overview" | "students" | "videos" | "courses" | "settings";
+type Section =
+  | "overview"
+  | "students"
+  | "videos"
+  | "courses"
+  | "center"
+  | "settings";
 
 interface DashboardData {
   stats: {
@@ -86,6 +93,9 @@ interface UserData {
   created_at: string;
   approvalStatus?: "accepted" | "rejected";
   _count?: { enrollments: number };
+  centerId?: number | null;
+  center?: { centerName: string; centerCode: string } | null;
+  progress?: number;
 }
 
 interface CourseData {
@@ -116,6 +126,7 @@ interface StudentFormState {
   dob: string;
   email: string;
   selectedCourses: number[]; // Array of course IDs
+  centerId: string; // Selected center ID
 }
 
 interface CourseFormState {
@@ -127,12 +138,34 @@ interface CourseFormState {
   duration: string;
 }
 
+interface CenterFormState {
+  centerName: string;
+  schoolName: string;
+  centerCode: string;
+  contactPerson: string;
+  boardOrCurriculum: string;
+  centerAdminId: string;
+  centerAdminPassword: string;
+  phoneNumber: string;
+  email: string;
+  address: string;
+  status: "Active" | "Inactive";
+}
+
+interface CenterRecord extends CenterFormState {
+  id: string;
+  totalStudents: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const emptyStudentForm: StudentFormState = {
   fullName: "",
   rollNumber: "",
   dob: "",
   email: "",
   selectedCourses: [], // Empty array for course selection
+  centerId: "", // Selected center ID
 };
 
 const emptyCourseForm: CourseFormState = {
@@ -142,6 +175,23 @@ const emptyCourseForm: CourseFormState = {
   level: "",
   instructor: "",
   duration: "",
+};
+
+const centerDetailsStorageKey = "adminCenterDetails";
+const centerListStorageKey = "adminCenters";
+
+const emptyCenterForm: CenterFormState = {
+  centerName: "",
+  schoolName: "",
+  centerCode: "",
+  contactPerson: "",
+  boardOrCurriculum: "",
+  centerAdminId: "",
+  centerAdminPassword: "",
+  phoneNumber: "",
+  email: "",
+  address: "",
+  status: "Active",
 };
 
 const getInitials = (fullName: string) =>
@@ -186,6 +236,25 @@ const getAvatarInitial = (name?: string | null, username?: string | null) => {
   if (fromName) return fromName.slice(0, 2);
   const fromUsername = (username || "").trim().charAt(0).toUpperCase();
   return fromUsername || "S";
+};
+
+const generateCenterAdminId = (centerCode: string) => {
+  const normalizedCode = centerCode
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  const seed = normalizedCode || "CENTER";
+  const suffix = Math.floor(100 + Math.random() * 900);
+  return `ADM-${seed.slice(0, 6)}-${suffix}`;
+};
+
+const generateCenterAdminPassword = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#";
+  let password = "";
+  for (let i = 0; i < 10; i += 1) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
 };
 
 function StatCard({
@@ -303,6 +372,17 @@ export default function AdminDashboard() {
   const [courseForm, setCourseForm] = useState<CourseFormState>(
     emptyCourseForm,
   );
+  const [centerForm, setCenterForm] = useState<CenterFormState>(
+    emptyCenterForm,
+  );
+  const [centers, setCenters] = useState<CenterRecord[]>([]);
+  const [centerFormMode, setCenterFormMode] = useState<"add" | "edit">("add");
+  const [editingCenterId, setEditingCenterId] = useState<string | null>(null);
+  const [viewCenter, setViewCenter] = useState<CenterRecord | null>(null);
+  const [centerFeedback, setCenterFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const [deleteDialog, setDeleteDialog] = useState<{
     type: "student" | "course";
@@ -367,7 +447,13 @@ export default function AdminDashboard() {
         await logout();
         return;
       }
-      console.error("Failed to load users:", err);
+      setUsers([]);
+      const message =
+        err instanceof ApiResponseError
+          ? `Unable to load students right now (${err.message}).`
+          : "Unable to load students right now.";
+      setError(message);
+      console.warn(message);
     } finally {
       setLoading(false);
     }
@@ -413,7 +499,7 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (section === "students" && users.length === 0) {
+    if (section === "students") {
       loadUsers();
     }
     if (section === "videos") {
@@ -423,6 +509,43 @@ export default function AdminDashboard() {
     if (section === "courses" && courses.length === 0) {
       loadCourses();
     }
+    if (section === "center") {
+      if (users.length === 0) loadUsers();
+      if (courses.length === 0) loadCourses();
+      if (!dashboardData) loadDashboardData();
+    }
+  }, [section]);
+
+  // Load centers from database
+  const loadCenters = async () => {
+    try {
+      const data = await api.centers.getAll();
+      const mappedCenters: CenterRecord[] = data.map((center) => ({
+        id: center.id.toString(),
+        centerName: center.centerName,
+        schoolName: center.schoolName,
+        centerCode: center.centerCode,
+        contactPerson: center.contactPerson,
+        phoneNumber: center.phoneNumber,
+        email: center.email,
+        address: center.address || "",
+        boardOrCurriculum: center.boardOrCurriculum || "",
+        centerAdminId: center.centerAdminId,
+        centerAdminPassword: (center as any).centerAdminPassword || "",
+        status: center.status as "Active" | "Inactive",
+        totalStudents: (center as any).totalStudents || 0,
+        createdAt: center.createdAt,
+        updatedAt: center.updatedAt,
+      }));
+      setCenters(mappedCenters);
+    } catch (err) {
+      console.error("Failed to load centers:", err);
+    }
+  };
+
+  useEffect(() => {
+    // Load centers from database
+    loadCenters();
   }, [section]);
 
   const query = search.toLowerCase();
@@ -542,6 +665,7 @@ export default function AdminDashboard() {
         dob: detailedUser.dob ? detailedUser.dob.split("T")[0] : "", // Convert to YYYY-MM-DD format
         email: detailedUser.email || "",
         selectedCourses: detailedUser.enrolledCourseIds || [],
+        centerId: detailedUser.centerId?.toString() || "",
       });
 
       setStudentModalOpen(true);
@@ -554,6 +678,7 @@ export default function AdminDashboard() {
         dob: student.dob ? student.dob.split("T")[0] : "",
         email: student.email || "",
         selectedCourses: [],
+        centerId: student.centerId?.toString() || "",
       });
       setStudentModalOpen(true);
       if (error instanceof ApiResponseError) {
@@ -607,6 +732,9 @@ export default function AdminDashboard() {
           dob: studentForm.dob || undefined,
           isAdmin: false,
           courseIds: studentForm.selectedCourses,
+          centerId: studentForm.centerId
+            ? parseInt(studentForm.centerId)
+            : null,
         });
 
         // Refresh users list from server
@@ -622,22 +750,22 @@ export default function AdminDashboard() {
           }`,
         );
       } else if (editingStudentId !== null) {
-        // TODO: Implement edit functionality with API
-        setUsers((prev) =>
-          prev.map((student) =>
-            student.id === editingStudentId
-              ? {
-                  ...student,
-                  name: fullName,
-                  email,
-                  username: generatedId,
-                }
-              : student,
-          ),
-        );
-        window.alert(
-          "Student updated (local update - API integration pending).",
-        );
+        // Update existing student via API
+        await api.admin.updateUser(editingStudentId, {
+          name: fullName,
+          email,
+          rollNumber: studentForm.rollNumber.trim() || undefined,
+          dob: studentForm.dob || undefined,
+          centerId: studentForm.centerId
+            ? parseInt(studentForm.centerId)
+            : null,
+          courseIds: studentForm.selectedCourses,
+        });
+
+        // Refresh users list from server
+        await loadUsers();
+
+        window.alert("Student updated successfully!");
       }
 
       setStudentModalOpen(false);
@@ -778,6 +906,172 @@ export default function AdminDashboard() {
     window.alert("Password reset request submitted.");
   };
 
+  const setCenterMessage = (type: "success" | "error", message: string) => {
+    setCenterFeedback({ type, message });
+    window.setTimeout(() => setCenterFeedback(null), 2500);
+  };
+
+  const validateCenterForm = () => {
+    const requiredFields: Array<[string, string]> = [
+      ["Center Name", centerForm.centerName],
+      ["School Name", centerForm.schoolName],
+      ["Center Code", centerForm.centerCode],
+      ["Contact Person", centerForm.contactPerson],
+      ["Phone Number", centerForm.phoneNumber],
+      ["Email Address", centerForm.email],
+      ["Board / Curriculum", centerForm.boardOrCurriculum],
+      ["Center Admin ID", centerForm.centerAdminId],
+      ["Address", centerForm.address],
+    ];
+
+    // Only require password for new centers
+    if (centerFormMode === "add" && !centerForm.centerAdminPassword.trim()) {
+      return "Center Admin Password is required.";
+    }
+
+    const missingField = requiredFields.find(([, value]) => !value.trim());
+    if (missingField) {
+      return `${missingField[0]} is required.`;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(centerForm.email.trim())) {
+      return "Please enter a valid email address.";
+    }
+
+    const phoneRegex = /^\+?[0-9\s()-]{7,15}$/;
+    if (!phoneRegex.test(centerForm.phoneNumber.trim())) {
+      return "Please enter a valid phone number.";
+    }
+
+    const normalizedCode = centerForm.centerCode.trim().toUpperCase();
+    const duplicateCode = centers.some(
+      (center) =>
+        center.centerCode.trim().toUpperCase() === normalizedCode &&
+        center.id !== editingCenterId,
+    );
+    if (duplicateCode) {
+      return "Center code must be unique.";
+    }
+
+    return null;
+  };
+
+  const syncCenterForPanel = (records: CenterRecord[]) => {
+    const primary = records.find((c) => c.status === "Active") ?? records[0];
+    if (!primary) {
+      localStorage.removeItem(centerDetailsStorageKey);
+      return;
+    }
+
+    localStorage.setItem(
+      centerDetailsStorageKey,
+      JSON.stringify({
+        details: {
+          centerName: primary.centerName,
+          schoolName: primary.schoolName,
+          centerCode: primary.centerCode,
+        },
+        savedAt: primary.updatedAt,
+      }),
+    );
+  };
+
+  const resetCenterForm = () => {
+    setCenterForm(emptyCenterForm);
+    setCenterFormMode("add");
+    setEditingCenterId(null);
+  };
+
+  const handleCenterSubmit = async () => {
+    const validationError = validateCenterForm();
+    if (validationError) {
+      setCenterMessage("error", validationError);
+      return;
+    }
+
+    const centerData: any = {
+      centerName: centerForm.centerName.trim(),
+      schoolName: centerForm.schoolName.trim(),
+      centerCode: centerForm.centerCode.trim().toUpperCase(),
+      contactPerson: centerForm.contactPerson.trim(),
+      boardOrCurriculum: centerForm.boardOrCurriculum.trim(),
+      centerAdminId: centerForm.centerAdminId.trim().toUpperCase(),
+      phoneNumber: centerForm.phoneNumber.trim(),
+      email: centerForm.email.trim().toLowerCase(),
+      address: centerForm.address.trim(),
+    };
+
+    // Only include password if it's not empty (for edit mode) or always (for add mode)
+    if (centerForm.centerAdminPassword.trim()) {
+      centerData.centerAdminPassword = centerForm.centerAdminPassword.trim();
+    }
+
+    try {
+      if (centerFormMode === "edit" && editingCenterId) {
+        await api.centers.update(parseInt(editingCenterId), centerData);
+        setCenterMessage("success", "Center updated successfully.");
+      } else {
+        await api.centers.create(centerData);
+        setCenterMessage("success", "Center added successfully.");
+      }
+
+      // Reload centers from database
+      await loadCenters();
+      resetCenterForm();
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to save center";
+      setCenterMessage("error", errorMessage);
+    }
+  };
+
+  const handleCenterEdit = (center: CenterRecord) => {
+    setCenterForm({
+      centerName: center.centerName,
+      schoolName: center.schoolName,
+      centerCode: center.centerCode,
+      contactPerson: center.contactPerson,
+      boardOrCurriculum: center.boardOrCurriculum || "",
+      centerAdminId: center.centerAdminId,
+      centerAdminPassword: center.centerAdminPassword || "",
+      phoneNumber: center.phoneNumber,
+      email: center.email,
+      address: center.address || "",
+      status: center.status === "Inactive" ? "Inactive" : "Active",
+    });
+    setCenterFormMode("edit");
+    setEditingCenterId(center.id);
+  };
+
+  const handleCenterDelete = async (centerId: string) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this center?",
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.centers.delete(parseInt(centerId));
+
+      // Reload centers from database
+      await loadCenters();
+
+      if (editingCenterId === centerId) {
+        resetCenterForm();
+      }
+
+      if (viewCenter?.id === centerId) {
+        setViewCenter(null);
+      }
+
+      setCenterMessage("success", "Center deleted successfully.");
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to delete center";
+      setCenterMessage("error", errorMessage);
+    }
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#F8FAFC]">
@@ -791,6 +1085,7 @@ export default function AdminDashboard() {
     { id: "students", label: "Students", icon: Users },
     { id: "videos", label: "Videos", icon: Video },
     { id: "courses", label: "Courses", icon: BookOpen },
+    { id: "center", label: "Center", icon: Building2 },
   ] as const;
 
   const avgProgress =
@@ -1073,6 +1368,9 @@ export default function AdminDashboard() {
                         Student
                       </th>
                       <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
+                        Center
+                      </th>
+                      <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
                         Courses
                       </th>
                       <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">
@@ -1109,6 +1407,15 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-4 py-3.5">
+                          {u.center ? (
+                            <span className="text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md">
+                              {u.center.centerName}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
                           <span className="text-xs text-slate-600">
                             {u._count?.enrollments
                               ? u._count.enrollments === 1
@@ -1122,11 +1429,11 @@ export default function AdminDashboard() {
                             <div className="w-16 bg-slate-100 rounded-full h-1 overflow-hidden">
                               <div
                                 className="h-full bg-indigo-500 rounded-full"
-                                style={{ width: "65%" }}
+                                style={{ width: `${u.progress || 0}%` }}
                               />
                             </div>
                             <span className="text-xs font-semibold text-slate-600">
-                              65%
+                              {u.progress || 0}%
                             </span>
                           </div>
                         </td>
@@ -1192,11 +1499,464 @@ export default function AdminDashboard() {
           {section === "videos" && <OptimizedAdminVideoManagement />}
           {/* ── COURSES ── */}
           {section === "courses" && <AdminCourseManagement />}
+          {/* ── CENTER ── */}
+          {section === "center" && (
+            <div className="space-y-5">
+              <div className="rounded-2xl bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-slate-200 text-black p-6 shadow-sm">
+                <h2 className="text-lg font-bold text-black">
+                  Center Management
+                </h2>
+                <p className="text-xs text-black mt-1.5">
+                  Create, view, edit, and manage independent school centers.
+                </p>
+              </div>
+
+              {centerFeedback && (
+                <div
+                  className={`rounded-xl px-4 py-3 text-sm font-medium border ${
+                    centerFeedback.type === "success"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                      : "bg-red-50 border-red-200 text-red-700"
+                  }`}
+                >
+                  {centerFeedback.message}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-slate-200 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Center List
+                    </h3>
+                    <span className="text-xs text-slate-600 font-medium">
+                      {centers.length} total centers
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1080px]">
+                      <thead className="bg-slate-50">
+                        <tr className="text-left">
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Center Name
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            School Name
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Center Code
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Contact Person
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Phone Number
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Email
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Total Students
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Status
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {centers.map((center) => (
+                          <tr
+                            key={center.id}
+                            className="border-t border-slate-100 hover:bg-slate-50/70"
+                          >
+                            <td className="px-4 py-3 text-xs font-semibold text-slate-800">
+                              {center.centerName}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-700">
+                              {center.schoolName}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-700">
+                              {center.centerCode}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-700">
+                              {center.contactPerson}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-700">
+                              {center.phoneNumber}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-700">
+                              {center.email}
+                            </td>
+                            <td className="px-4 py-3 text-xs font-semibold text-slate-700">
+                              {center.totalStudents}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge status={center.status} />
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setViewCenter(center)}
+                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50"
+                                >
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => handleCenterEdit(center)}
+                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleCenterDelete(center.id)}
+                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-red-200 text-red-700 hover:bg-red-50"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {centers.length === 0 && (
+                    <div className="py-14 text-center text-sm text-slate-400">
+                      No centers added yet.
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-indigo-50 to-slate-50 border-b border-slate-200">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {centerFormMode === "add" ? "Add Center" : "Edit Center"}
+                    </h3>
+                    {centerFormMode === "edit" && (
+                      <button
+                        onClick={resetCenterForm}
+                        className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      >
+                        Cancel Edit
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-3 p-6">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Center Name
+                      </label>
+                      <input
+                        type="text"
+                        value={centerForm.centerName}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            centerName: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        School Name
+                      </label>
+                      <input
+                        type="text"
+                        value={centerForm.schoolName}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            schoolName: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Center Code
+                      </label>
+                      <input
+                        type="text"
+                        value={centerForm.centerCode}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            centerCode: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Contact Person Name
+                      </label>
+                      <input
+                        type="text"
+                        value={centerForm.contactPerson}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            contactPerson: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Phone Number
+                      </label>
+                      <input
+                        type="text"
+                        value={centerForm.phoneNumber}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            phoneNumber: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={centerForm.email}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            email: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Board / Curriculum
+                      </label>
+                      <select
+                        value={centerForm.boardOrCurriculum}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            boardOrCurriculum: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      >
+                        <option value="">Select board</option>
+                        <option value="CBSE">CBSE</option>
+                        <option value="ICSE">ICSE</option>
+                        <option value="State Board">State Board</option>
+                        <option value="IB">IB</option>
+                        <option value="Cambridge">Cambridge</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Center Admin ID
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={centerForm.centerAdminId}
+                          onChange={(e) =>
+                            setCenterForm((prev) => ({
+                              ...prev,
+                              centerAdminId: e.target.value,
+                            }))
+                          }
+                          placeholder="Auto-generated center admin ID"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const existingIds = new Set(
+                              centers
+                                .filter(
+                                  (center) => center.id !== editingCenterId,
+                                )
+                                .map((center) =>
+                                  center.centerAdminId.trim().toUpperCase(),
+                                ),
+                            );
+                            let nextId = generateCenterAdminId(
+                              centerForm.centerCode,
+                            );
+                            while (
+                              existingIds.has(nextId.trim().toUpperCase())
+                            ) {
+                              nextId = generateCenterAdminId(
+                                centerForm.centerCode,
+                              );
+                            }
+                            setCenterForm((prev) => ({
+                              ...prev,
+                              centerAdminId: nextId,
+                            }));
+                          }}
+                          className="px-3 py-2.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Center Admin Password
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={centerForm.centerAdminPassword}
+                          onChange={(e) =>
+                            setCenterForm((prev) => ({
+                              ...prev,
+                              centerAdminPassword: e.target.value,
+                            }))
+                          }
+                          placeholder="Auto-generated password"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const existingPasswords = new Set(
+                              centers
+                                .filter(
+                                  (center) => center.id !== editingCenterId,
+                                )
+                                .map((center) => center.centerAdminPassword),
+                            );
+                            let nextPassword = generateCenterAdminPassword();
+                            while (existingPasswords.has(nextPassword)) {
+                              nextPassword = generateCenterAdminPassword();
+                            }
+                            setCenterForm((prev) => ({
+                              ...prev,
+                              centerAdminPassword: nextPassword,
+                            }));
+                          }}
+                          className="px-3 py-2.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Status
+                      </label>
+                      <select
+                        value={centerForm.status}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            status: e.target.value as "Active" | "Inactive",
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Address
+                      </label>
+                      <textarea
+                        value={centerForm.address}
+                        onChange={(e) =>
+                          setCenterForm((prev) => ({
+                            ...prev,
+                            address: e.target.value,
+                          }))
+                        }
+                        rows={3}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleCenterSubmit}
+                    className="w-full mt-4 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                  >
+                    {centerFormMode === "add" ? "Add Center" : "Update Center"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
 
-        {studentModalOpen && (
+        {viewCenter && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-            <div className="w-full max-w-xl bg-white rounded-2xl border border-slate-200 shadow-2xl">
+            <div className="w-full max-w-lg bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-900">
+                  Center Details
+                </h3>
+                <button
+                  onClick={() => setViewCenter(null)}
+                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-6">
+                <table className="w-full">
+                  <tbody>
+                    {[
+                      ["Center Name", viewCenter.centerName],
+                      ["School Name", viewCenter.schoolName],
+                      ["Center Code", viewCenter.centerCode],
+                      ["Contact Person", viewCenter.contactPerson],
+                      ["Phone Number", viewCenter.phoneNumber],
+                      ["Email", viewCenter.email],
+                      ["Board / Curriculum", viewCenter.boardOrCurriculum],
+                      ["Center Admin ID", viewCenter.centerAdminId],
+                      ["Center Admin Password", viewCenter.centerAdminPassword],
+                      ["Address", viewCenter.address],
+                      ["Total Students", String(viewCenter.totalStudents)],
+                      ["Status", viewCenter.status],
+                    ].map(([label, value]) => (
+                      <tr
+                        key={label}
+                        className="border-b border-slate-100 last:border-b-0"
+                      >
+                        <td className="py-2 text-xs font-semibold text-slate-600 w-44">
+                          {label}
+                        </td>
+                        <td className="py-2 text-xs text-slate-800">{value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {studentModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
+            <div className="w-full max-w-xl max-h-[90vh] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden my-6">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h2 className="text-base font-bold text-slate-900">
                   {studentModalMode === "add" ? "Add Student" : "Edit Student"}
@@ -1208,7 +1968,7 @@ export default function AdminDashboard() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="px-6 py-5 space-y-4">
+              <div className="px-6 py-5 space-y-4 overflow-y-auto">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">
                     Full Name
@@ -1224,6 +1984,28 @@ export default function AdminDashboard() {
                     }
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Center
+                  </label>
+                  <select
+                    value={studentForm.centerId}
+                    onChange={(e) =>
+                      setStudentForm((prev) => ({
+                        ...prev,
+                        centerId: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition-all"
+                  >
+                    <option value="">Select Center</option>
+                    {centers.map((center) => (
+                      <option key={center.id} value={center.id}>
+                        {center.centerName} ({center.centerCode})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>

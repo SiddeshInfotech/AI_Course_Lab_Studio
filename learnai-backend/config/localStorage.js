@@ -25,6 +25,33 @@ export const ensureDir = async (dirPath) => {
 
 export const getFilePath = (key) => {
     const basePath = getBasePath();
+
+    // If key already contains a subdirectory (e.g., 'videos/file.mp4'), use it as-is
+    if (key.includes('/')) {
+        return path.join(basePath, key);
+    }
+
+    // Otherwise, try to determine the subdirectory based on file extension
+    const ext = path.extname(key).toLowerCase();
+    let subdir = '';
+
+    if (['.mp4', '.webm', '.ogg', '.mov', '.avi', '.wmv'].includes(ext)) {
+        subdir = 'videos';
+    } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+        subdir = 'images';
+    } else if (['.pdf', '.doc', '.docx'].includes(ext)) {
+        subdir = 'documents';
+    }
+
+    // For files in subdirectories, check if the file exists there first
+    if (subdir) {
+        const subdirPath = path.join(basePath, subdir, key);
+        if (fs.existsSync(subdirPath)) {
+            return subdirPath;
+        }
+    }
+
+    // Fallback to root uploads directory
     return path.join(basePath, key);
 };
 

@@ -55,6 +55,28 @@ const processVideoUrl = (url) => {
 };
 
 /**
+ * Get video URL based on preferred language
+ * @param {object} lesson - The lesson object
+ * @param {string} preferredLanguage - User's preferred language
+ * @returns {string|null} - Processed video URL
+ */
+const getVideoUrlByLanguage = (lesson, preferredLanguage) => {
+  const urlEnglish = lesson.videoUrlEnglish || lesson.videoUrl;
+  const urlHindi = lesson.videoUrlHindi;
+  const urlMarathi = lesson.videoUrlMarathi;
+
+  switch (preferredLanguage) {
+    case "hindi":
+      return processVideoUrl(urlHindi || urlEnglish);
+    case "marathi":
+      return processVideoUrl(urlMarathi || urlEnglish);
+    case "english":
+    default:
+      return processVideoUrl(urlEnglish);
+  }
+};
+
+/**
  * Get curriculum (lessons grouped by sections) for a specific course
  * @param {number} userId - The ID of the user
  * @param {number} courseId - The ID of the course
@@ -81,6 +103,19 @@ export const getCourseCurriculum = async (userId, courseId) => {
       },
     },
   });
+
+  // Get user's language preference for this course
+  let userLanguagePreference = await prisma.userLanguagePreference.findUnique({
+    where: {
+      userId_courseId: {
+        userId: parseInt(userId),
+        courseId: parseInt(courseId),
+      },
+    },
+  });
+
+  // Default to English if no preference exists
+  const preferredLanguage = userLanguagePreference?.language || "english";
 
   // Group lessons by section
   const sectionsMap = new Map();
@@ -110,7 +145,13 @@ export const getCourseCurriculum = async (userId, courseId) => {
       active: isActive,
       description: lesson.description,
       content: lesson.content,
-      videoUrl: processVideoUrl(lesson.videoUrl),
+      videoUrl: getVideoUrlByLanguage(lesson, preferredLanguage),
+      // Include all language URLs for frontend switching
+      languages: {
+        english: processVideoUrl(lesson.videoUrlEnglish || lesson.videoUrl),
+        hindi: processVideoUrl(lesson.videoUrlHindi),
+        marathi: processVideoUrl(lesson.videoUrlMarathi),
+      },
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
@@ -145,11 +186,18 @@ export const getCourseCurriculum = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
-        videoUrl: processVideoUrl(currentLesson.videoUrl),
+        videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
+        // Include all language URLs for frontend switching
+        languages: {
+          english: processVideoUrl(currentLesson.videoUrlEnglish || currentLesson.videoUrl),
+          hindi: processVideoUrl(currentLesson.videoUrlHindi),
+          marathi: processVideoUrl(currentLesson.videoUrlMarathi),
+        },
         objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }
       : null,
+    preferredLanguage,
   };
 };
 
@@ -182,6 +230,11 @@ export const getLessonDetails = async (userId, lessonId) => {
     description: lesson.description,
     content: lesson.content,
     videoUrl: processVideoUrl(lesson.videoUrl),
+    languages: {
+      english: processVideoUrl(lesson.videoUrlEnglish || lesson.videoUrl),
+      hindi: processVideoUrl(lesson.videoUrlHindi),
+      marathi: processVideoUrl(lesson.videoUrlMarathi),
+    },
     duration: lesson.duration,
     section: lesson.section,
     sectionTitle: lesson.sectionTitle,
@@ -294,14 +347,20 @@ export const markLessonComplete = async (userId, lessonId) => {
  * @returns {object} - Updated course progress
  */
 export const updateCurrentLesson = async (userId, courseId, lessonOrderIndex) => {
-  const courseProgress = await prisma.courseProgress.update({
+  const courseProgress = await prisma.courseProgress.upsert({
     where: {
       userId_courseId: {
         userId: parseInt(userId),
         courseId: parseInt(courseId),
       },
     },
-    data: {
+    update: {
+      currentLessonId: parseInt(lessonOrderIndex),
+      lastAccessedAt: new Date(),
+    },
+    create: {
+      userId: parseInt(userId),
+      courseId: parseInt(courseId),
       currentLessonId: parseInt(lessonOrderIndex),
       lastAccessedAt: new Date(),
     },
@@ -350,6 +409,19 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
     },
   });
 
+  // Get user's language preference for this course
+  let userLanguagePreference = await prisma.userLanguagePreference.findUnique({
+    where: {
+      userId_courseId: {
+        userId: parseInt(userId),
+        courseId: parseInt(courseId),
+      },
+    },
+  });
+
+  // Default to English if no preference exists
+  const preferredLanguage = userLanguagePreference?.language || "english";
+
   // Build sections map combining lessons and tools by day
   const sectionsMap = new Map();
 
@@ -380,7 +452,13 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
       active: isActive,
       description: lesson.description,
       content: lesson.content,
-      videoUrl: processVideoUrl(lesson.videoUrl),
+      videoUrl: getVideoUrlByLanguage(lesson, preferredLanguage),
+      // Include all language URLs for frontend switching
+      languages: {
+        english: processVideoUrl(lesson.videoUrlEnglish || lesson.videoUrl),
+        hindi: processVideoUrl(lesson.videoUrlHindi),
+        marathi: processVideoUrl(lesson.videoUrlMarathi),
+      },
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
@@ -455,10 +533,17 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
-        videoUrl: processVideoUrl(currentLesson.videoUrl),
+        videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
+        // Include all language URLs for frontend switching
+        languages: {
+          english: processVideoUrl(currentLesson.videoUrlEnglish || currentLesson.videoUrl),
+          hindi: processVideoUrl(currentLesson.videoUrlHindi),
+          marathi: processVideoUrl(currentLesson.videoUrlMarathi),
+        },
         objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }
       : null,
+    preferredLanguage,
   };
 };
