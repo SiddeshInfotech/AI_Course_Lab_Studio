@@ -18,6 +18,7 @@ import {
     getAdminCourseList,
     getCourseEnrollments,
     uploadLessonVideo,
+    uploadUnifiedVideo,
 } from "../controllers/courseController.js";
 import {
     createCourseFromTools,
@@ -39,6 +40,20 @@ const upload = multer({
             cb(null, true);
         } else {
             cb(new Error("Only video files are allowed"));
+        }
+    },
+});
+
+// Configure multer for unified video + audio uploads
+const unifiedUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 500 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ["video/", "audio/"];
+        if (allowedTypes.some(type => file.mimetype.startsWith(type))) {
+            cb(null, true);
+        } else {
+            cb(new Error("Only video and audio files are allowed"));
         }
     },
 });
@@ -69,5 +84,18 @@ router.delete("/:courseId/lessons/:lessonId", authMiddleware, adminMiddleware, r
 
 // Admin: Upload lesson video with language support
 router.post("/:courseId/lessons/:lessonId/upload-video", authMiddleware, adminMiddleware, upload.single("video"), uploadLessonVideo);
+
+// Admin: Upload unified video with multiple audio tracks
+router.post("/:courseId/lessons/:lessonId/upload-unified-video", 
+    authMiddleware, 
+    adminMiddleware, 
+    unifiedUpload.fields([
+        { name: "video", maxCount: 1 },
+        { name: "audioEnglish", maxCount: 1 },
+        { name: "audioHindi", maxCount: 1 },
+        { name: "audioMarathi", maxCount: 1 },
+    ]), 
+    uploadUnifiedVideo
+);
 
 export default router;

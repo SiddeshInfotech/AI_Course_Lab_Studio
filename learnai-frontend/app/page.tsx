@@ -5,22 +5,12 @@ import { EyeOff, Eye, ArrowRight, User, Lock, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
+import { api } from "@/lib/api";
 
-const CENTER_ID = "center";
-const CENTER_PASSWORD = "center123";
 const CENTER_SESSION_KEY = "centerSession";
-const CENTER_LIST_STORAGE_KEY = "adminCenters";
 const CENTER_AUTH_STORAGE_KEY = "centerAuth";
-
-interface CenterLoginRecord {
-  id: string;
-  centerName: string;
-  schoolName: string;
-  centerCode: string;
-  centerAdminId: string;
-  centerAdminPassword: string;
-  status: "Active" | "Inactive";
-}
+const CENTER_TOKEN_KEY = "centerToken";
+const CENTER_REFRESH_TOKEN_KEY = "centerRefreshToken";
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -37,105 +27,32 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
 
-    const normalizedUsername = username.trim().toLowerCase();
     try {
-      const rawCenters = localStorage.getItem(CENTER_LIST_STORAGE_KEY);
-      if (rawCenters) {
-        const parsedCenters = JSON.parse(rawCenters) as unknown;
-        const centerList = Array.isArray(parsedCenters)
-          ? (parsedCenters as Array<Partial<CenterLoginRecord> | null>)
-          : [];
-
-        const matchedCenter = centerList.find(
-          (center) =>
-            typeof center?.centerAdminId === "string" &&
-            typeof center?.centerAdminPassword === "string" &&
-            center.centerAdminId.trim().toLowerCase() === normalizedUsername &&
-            center.centerAdminPassword === password &&
-            center.status === "Active",
+      // Try center login via API first
+      const centerResponse = await api.center.login(username, password);
+      
+      if (centerResponse.accessToken) {
+        // Store center session
+        localStorage.setItem(CENTER_SESSION_KEY, "true");
+        localStorage.setItem(CENTER_TOKEN_KEY, centerResponse.accessToken);
+        localStorage.setItem(CENTER_REFRESH_TOKEN_KEY, centerResponse.refreshToken);
+        localStorage.setItem(
+          CENTER_AUTH_STORAGE_KEY,
+          JSON.stringify(centerResponse.center)
         );
-
-        if (matchedCenter) {
-          localStorage.setItem(CENTER_SESSION_KEY, "true");
-          localStorage.setItem(
-            CENTER_AUTH_STORAGE_KEY,
-            JSON.stringify({
-              centerId: matchedCenter.id ?? "legacy-center",
-              centerCode: matchedCenter.centerCode ?? "CENTER",
-              centerName: matchedCenter.centerName ?? "LearnAI Center",
-              schoolName: matchedCenter.schoolName ?? "Sunrise Public School",
-              adminId: matchedCenter.centerAdminId,
-            }),
-          );
-
-          // Load students for this specific center
-          try {
-            const allStudentsRaw = localStorage.getItem("centerStudents");
-            if (allStudentsRaw) {
-              const allStudents = JSON.parse(allStudentsRaw);
-              const centerSpecificStudents = Array.isArray(allStudents)
-                ? allStudents.filter(
-                    (s: any) => s.centerId === matchedCenter.id,
-                  )
-                : allStudents;
-              localStorage.setItem(
-                "centerStudents",
-                JSON.stringify(centerSpecificStudents),
-              );
-            } else {
-              // Initialize empty student array if none exists
-              localStorage.setItem("centerStudents", JSON.stringify([]));
-            }
-          } catch (err) {
-            console.error("Failed to load center students:", err);
-            localStorage.setItem("centerStudents", JSON.stringify([]));
-          }
-
-          router.push("/center");
-          return;
-        }
+        
+        router.push("/center");
+        return;
       }
-    } catch (err) {
-      console.error("Center login lookup failed:", err);
+    } catch (centerError: any) {
+      // Center login failed, try regular user login
+      if (centerError.status !== 401 && centerError.status !== 400) {
+        console.error("Center login error:", centerError);
+      }
     }
 
-    if (normalizedUsername === CENTER_ID && password === CENTER_PASSWORD) {
-      localStorage.setItem(CENTER_SESSION_KEY, "true");
-      localStorage.setItem(
-        CENTER_AUTH_STORAGE_KEY,
-        JSON.stringify({
-          centerId: "legacy-center",
-          centerCode: "CENTER",
-          centerName: "LearnAI Center",
-          schoolName: "Sunrise Public School",
-          adminId: CENTER_ID,
-        }),
-      );
-
-      // Load students for legacy center
-      try {
-        const allStudentsRaw = localStorage.getItem("centerStudents");
-        if (allStudentsRaw) {
-          const allStudents = JSON.parse(allStudentsRaw);
-          const centerSpecificStudents = Array.isArray(allStudents)
-            ? allStudents.filter((s: any) => s.centerId === "legacy-center")
-            : allStudents;
-          localStorage.setItem(
-            "centerStudents",
-            JSON.stringify(centerSpecificStudents),
-          );
-        } else {
-          localStorage.setItem("centerStudents", JSON.stringify([]));
-        }
-      } catch (err) {
-        console.error("Failed to load center students:", err);
-        localStorage.setItem("centerStudents", JSON.stringify([]));
-      }
-
-      router.push("/center");
-      return;
-    }
-
+    // Try regular user login
+    const normalizedUsername = username.trim().toLowerCase();
     const result = await login(username, password);
 
     if (result.success) {
@@ -147,7 +64,7 @@ export default function LoginPage() {
       return;
     }
 
-    setError(result.error || "Login failed");
+    setError(result.error || "Invalid credentials");
     setIsLoading(false);
   };
 

@@ -71,10 +71,12 @@ model Lesson {
   title            String
   description      String?
   content          String? // lesson content/material
-  videoUrl         String? // DEPRECATED - use language-specific URLs
-  videoUrlEnglish  String? // English version video URL
-  videoUrlHindi    String? // Hindi version video URL
-  videoUrlMarathi  String? // Marathi version video URL
+  videoUrl         String? // DEPRECATED - use videoUrl with audioTracks
+  videoUrlEnglish  String? // DEPRECATED - use unifiedVideoUrl
+  videoUrlHindi    String? // DEPRECATED - use unifiedVideoUrl
+  videoUrlMarathi  String? // DEPRECATED - use unifiedVideoUrl
+  unifiedVideoUrl  String? // Single video file with multiple audio tracks
+  audioTracks      String? // JSON array: [{language, label, audioUrl}]
   orderIndex       Int // position in course (1, 2, 3...)
   duration         String? // e.g. "15 minutes"
   section          String? // e.g. "Day 1", "Week 1", "Module 1"

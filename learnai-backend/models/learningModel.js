@@ -61,6 +61,12 @@ const processVideoUrl = (url) => {
  * @returns {string|null} - Processed video URL
  */
 const getVideoUrlByLanguage = (lesson, preferredLanguage) => {
+  // If unified video with audio tracks exists, return it
+  if (lesson.unifiedVideoUrl) {
+    return processVideoUrl(lesson.unifiedVideoUrl);
+  }
+
+  // Fallback to legacy language-specific URLs
   const urlEnglish = lesson.videoUrlEnglish || lesson.videoUrl;
   const urlHindi = lesson.videoUrlHindi;
   const urlMarathi = lesson.videoUrlMarathi;
@@ -74,6 +80,33 @@ const getVideoUrlByLanguage = (lesson, preferredLanguage) => {
     default:
       return processVideoUrl(urlEnglish);
   }
+};
+
+/**
+ * Get audio tracks for a lesson
+ * @param {object} lesson - The lesson object
+ * @returns {Array} - Array of audio track objects
+ */
+const getAudioTracks = (lesson) => {
+  if (!lesson.audioTracks) return [];
+  return safeJsonParse(lesson.audioTracks, []);
+};
+
+/**
+ * Get preferred audio track index for a lesson
+ * @param {object} lesson - The lesson object
+ * @param {string} preferredLanguage - User's preferred language
+ * @returns {number} - Audio track index (0 = first audio track)
+ */
+const getPreferredAudioTrackIndex = (lesson, preferredLanguage) => {
+  const tracks = getAudioTracks(lesson);
+  if (tracks.length === 0) return 0;
+  
+  const trackIndex = tracks.findIndex(
+    track => track.language === preferredLanguage
+  );
+  
+  return trackIndex >= 0 ? trackIndex : 0;
 };
 
 /**
@@ -146,12 +179,16 @@ export const getCourseCurriculum = async (userId, courseId) => {
       description: lesson.description,
       content: lesson.content,
       videoUrl: getVideoUrlByLanguage(lesson, preferredLanguage),
-      // Include all language URLs for frontend switching
+      // Legacy support for language-specific videos
       languages: {
         english: processVideoUrl(lesson.videoUrlEnglish || lesson.videoUrl),
         hindi: processVideoUrl(lesson.videoUrlHindi),
         marathi: processVideoUrl(lesson.videoUrlMarathi),
       },
+      // New unified video with audio tracks support
+      unifiedVideoUrl: lesson.unifiedVideoUrl ? processVideoUrl(lesson.unifiedVideoUrl) : null,
+      audioTracks: getAudioTracks(lesson),
+      preferredAudioTrack: getPreferredAudioTrackIndex(lesson, preferredLanguage),
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
@@ -187,12 +224,16 @@ export const getCourseCurriculum = async (userId, courseId) => {
         description: currentLesson.description,
         content: currentLesson.content,
         videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
-        // Include all language URLs for frontend switching
+        // Legacy support for language-specific videos
         languages: {
           english: processVideoUrl(currentLesson.videoUrlEnglish || currentLesson.videoUrl),
           hindi: processVideoUrl(currentLesson.videoUrlHindi),
           marathi: processVideoUrl(currentLesson.videoUrlMarathi),
         },
+        // New unified video with audio tracks support
+        unifiedVideoUrl: currentLesson.unifiedVideoUrl ? processVideoUrl(currentLesson.unifiedVideoUrl) : null,
+        audioTracks: getAudioTracks(currentLesson),
+        preferredAudioTrack: getPreferredAudioTrackIndex(currentLesson, preferredLanguage),
         objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }
@@ -229,12 +270,14 @@ export const getLessonDetails = async (userId, lessonId) => {
     title: lesson.title,
     description: lesson.description,
     content: lesson.content,
-    videoUrl: processVideoUrl(lesson.videoUrl),
+    videoUrl: getVideoUrlByLanguage(lesson, "english"),
     languages: {
       english: processVideoUrl(lesson.videoUrlEnglish || lesson.videoUrl),
       hindi: processVideoUrl(lesson.videoUrlHindi),
       marathi: processVideoUrl(lesson.videoUrlMarathi),
     },
+    unifiedVideoUrl: lesson.unifiedVideoUrl ? processVideoUrl(lesson.unifiedVideoUrl) : null,
+    audioTracks: getAudioTracks(lesson),
     duration: lesson.duration,
     section: lesson.section,
     sectionTitle: lesson.sectionTitle,
@@ -453,12 +496,16 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
       description: lesson.description,
       content: lesson.content,
       videoUrl: getVideoUrlByLanguage(lesson, preferredLanguage),
-      // Include all language URLs for frontend switching
+      // Legacy support for language-specific videos
       languages: {
         english: processVideoUrl(lesson.videoUrlEnglish || lesson.videoUrl),
         hindi: processVideoUrl(lesson.videoUrlHindi),
         marathi: processVideoUrl(lesson.videoUrlMarathi),
       },
+      // New unified video with audio tracks support
+      unifiedVideoUrl: lesson.unifiedVideoUrl ? processVideoUrl(lesson.unifiedVideoUrl) : null,
+      audioTracks: getAudioTracks(lesson),
+      preferredAudioTrack: getPreferredAudioTrackIndex(lesson, preferredLanguage),
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
     });
@@ -534,12 +581,16 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
         description: currentLesson.description,
         content: currentLesson.content,
         videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
-        // Include all language URLs for frontend switching
+        // Legacy support for language-specific videos
         languages: {
           english: processVideoUrl(currentLesson.videoUrlEnglish || currentLesson.videoUrl),
           hindi: processVideoUrl(currentLesson.videoUrlHindi),
           marathi: processVideoUrl(currentLesson.videoUrlMarathi),
         },
+        // New unified video with audio tracks support
+        unifiedVideoUrl: currentLesson.unifiedVideoUrl ? processVideoUrl(currentLesson.unifiedVideoUrl) : null,
+        audioTracks: getAudioTracks(currentLesson),
+        preferredAudioTrack: getPreferredAudioTrackIndex(currentLesson, preferredLanguage),
         objectives: safeJsonParse(currentLesson.objectives, []),
         orderIndex: currentLesson.orderIndex,
       }

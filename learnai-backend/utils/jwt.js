@@ -12,7 +12,7 @@ export const signAccessToken = (payload) => {
         const token = jwt.sign(payload, JWT_SECRET, {
             expiresIn: process.env.ACCESS_TOKEN_TTL || "15m",
         });
-        console.log(`✅ Access token signed for user ${payload.userId} (expires in ${process.env.ACCESS_TOKEN_TTL || "15m"})`);
+        console.log(`✅ Access token signed (expires in ${process.env.ACCESS_TOKEN_TTL || "15m"})`);
         return token;
     } catch (error) {
         console.error("❌ JWT sign error:", error);
@@ -20,10 +20,23 @@ export const signAccessToken = (payload) => {
     }
 };
 
+export const signRefreshToken = (payload) => {
+    try {
+        const token = jwt.sign(payload, JWT_SECRET, {
+            expiresIn: process.env.REFRESH_TOKEN_TTL_DAYS || "30d",
+        });
+        console.log(`✅ Refresh token signed (expires in ${process.env.REFRESH_TOKEN_TTL_DAYS || "30d"})`);
+        return token;
+    } catch (error) {
+        console.error("❌ JWT refresh sign error:", error);
+        throw error;
+    }
+};
+
 export const verifyAccessToken = (token) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log(`✅ Token verified for user ${decoded.userId}`);
+        console.log(`✅ Token verified`);
         return decoded;
     } catch (error) {
         // Log specific error types for debugging
@@ -35,6 +48,18 @@ export const verifyAccessToken = (token) => {
             console.warn(`🔴 Token verification failed: ${error.message}`);
         }
         throw error;
+    }
+};
+
+export const verifyRefreshToken = (token) => {
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        return decoded;
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            throw new Error('Refresh token expired');
+        }
+        throw new Error('Invalid refresh token');
     }
 };
 

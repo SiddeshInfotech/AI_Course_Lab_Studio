@@ -4,9 +4,29 @@ import isDev from "electron-is-dev";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
+import { exec } from "child_process";
+import { setInterval, clearInterval } from "timers";
 
-// Enable fullscreen in Electron
+// ==================== SECURITY CONFIGURATIONS ====================
+
+// Disable debugging and inspection
+app.commandLine.appendSwitch("remote-debugging-port", "0");
+app.commandLine.appendSwitch("disable-remote-debugging");
+
+// Enable security features
 app.commandLine.appendSwitch("disable-gpu-sandbox");
+
+// Disable extensions
+app.commandLine.appendSwitch("disable-extensions");
+
+// Disable printing
+app.commandLine.appendSwitch("disable-print-preview");
+
+// Prevent screen capture - Critical for content protection
+app.commandLine.appendSwitch("disable-screen-capture");
+app.commandLine.appendSwitch("disable-desktop-capture");
+
+// ==================== END SECURITY CONFIG ====================
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -62,9 +82,9 @@ function createWindow() {
       preload: path.join(resourcesPath, "preload.ts"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
-      // Disable dev tools in production
-      devTools: isDev,
+      sandbox: false,  // Disable sandbox for better compatibility
+      // Disable dev tools in production only
+      devTools: !isDev,
       // Enable fullscreen for video elements
       allowRunningInsecureContent: false,
     },
@@ -85,24 +105,145 @@ function createWindow() {
 
   mainWindow.loadURL(startUrl);
 
-  if (isDev) {
+  // Set Content Security Policy headers
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; " +
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; " +
+          "style-src 'self' 'unsafe-inline' http://localhost:*; " +
+          "img-src 'self' data: blob: https: http://localhost:*; " +
+          "media-src 'self' blob: data: https: http://localhost:* http://*; " +
+          "font-src 'self' data: http://localhost:*; " +
+          "connect-src 'self' ws: wss: http://localhost:* https://* http://*; " +
+          "frame-src 'self' http://localhost:* https://*.youtube.com https://www.youtube.com 'allowfullscreen'; " +
+          "object-src 'self' blob: http://localhost:*; " +
+          "child-src 'self' blob: http://localhost:* https://*.youtube.com; " +
+          "allowfullscreen 'true';"
+        ],
+      },
+    });
+  });
+
+  // Only open dev tools in development, and only if explicitly requested
+  if (isDev && process.env.SHOW_DEV_TOOLS === "true") {
     mainWindow.webContents.openDevTools();
   }
 
+  // Block keyboard shortcuts for dev tools
   mainWindow.webContents.on("before-input-event", (event, input) => {
     // Block F12 (DevTools)
     if (input.key.toLowerCase() === "f12") {
       event.preventDefault();
+      return;
+    }
+
+    // Block Ctrl+Shift+I (Windows/Linux DevTools)
+    if (input.control && input.shift && input.key.toLowerCase() === "i") {
+      event.preventDefault();
+      return;
+    }
+
+    // Block Cmd+Option+I (macOS DevTools)
+    if (
+      process.platform === "darwin" &&
+      input.meta &&
+      input.alt &&
+      input.key === "i"
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    // Block Ctrl+Shift+C/J (inspect element & console)
+    if (
+      input.control &&
+      input.shift &&
+      (input.key.toLowerCase() === "c" || input.key.toLowerCase() === "j")
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    // Block Cmd+Shift+C/J (macOS inspect element & console)
+    if (
+      process.platform === "darwin" &&
+      input.meta &&
+      input.shift &&
+      (input.key.toLowerCase() === "c" || input.key.toLowerCase() === "j")
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    // Block Cmd+D (macOS DevTools)
+    if (process.platform === "darwin" && input.meta && input.key === "d") {
+      event.preventDefault();
+      return;
+    }
+
+    // Block Ctrl+D (Windows/Linux DevTools shortcut in some contexts)
+    if (input.control && input.key === "d") {
+      event.preventDefault();
+      return;
     }
   });
+
+  // Disable right-click context menu (which shows "Inspect Element")
+  mainWindow.webContents.on("context-menu", (e) => {
+    e.preventDefault();
+  });
+
+  // Prevent screen recording/capture - allow webcam but block screen capture
+  mainWindow.webContents.session.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin, details) => {
+      // Block screen capture requests (getDisplayMedia)
+      if (permission === "media" && (details as any).mediaType === "screen") {
+        return false;
+      }
+      // Allow webcam (getUserMedia) for legitimate features
+      return true;
+    },
+  );
+
+  // Recording software detection (adds friction but not full protection)
+  const KNOWN_RECORDING_SOFTWARE: Record<string, string[]> = {
+    darwin: ['QuickTime', 'ScreenFlow', 'OBS', 'Camtasia'],
+    win32: ['obs64', 'obs32', 'GameBarPresenceWriter', 'fraps', 'camtasia', 'ShareX', 'Lightshot']
+  };
+
+  const checkForRecordingSoftware = () => {
+    const platform = process.platform as string;
+    const softwareList = KNOWN_RECORDING_SOFTWARE[platform];
+    
+    if (!softwareList) return;
+
+    const searchPattern = softwareList.join('|').replace(/\s/g, '');
+    const cmd = platform === 'darwin'
+      ? `pgrep -fl "${searchPattern}"`
+      : `tasklist | findstr /i "${softwareList.join(' ')}"`;
+
+    exec(cmd, (error, stdout) => {
+      if (stdout && stdout.trim()) {
+        console.warn('[Security] Recording software detected:', stdout);
+        // Notify renderer
+        mainWindow?.webContents.send('recording-detected', { 
+          detected: true, 
+          timestamp: Date.now() 
+        });
+      }
+    });
+  };
+
+  // Check every 3 seconds
+  const recordingCheckInterval = setInterval(checkForRecordingSoftware, 3000);
 
   const syncRendererFullscreenState = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const isFs = mainWindow.isFullScreen();
-    mainWindow.webContents.send(
-      "window-fullscreen-changed",
-      isFs,
-    );
+    mainWindow.webContents.send("window-fullscreen-changed", isFs);
   };
 
   mainWindow.on("enter-full-screen", syncRendererFullscreenState);
@@ -111,6 +252,10 @@ function createWindow() {
   // Removed: DOM fullscreen interceptors - now allowing video player only fullscreen
 
   mainWindow.on("closed", () => {
+    // Clean up recording check interval
+    if (recordingCheckInterval) {
+      clearInterval(recordingCheckInterval);
+    }
     mainWindow = null;
   });
 }

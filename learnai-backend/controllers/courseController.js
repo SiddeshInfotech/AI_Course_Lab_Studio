@@ -16,6 +16,7 @@ import {
 } from "../models/courseModel.js";
 import prisma from "../config/db.js";
 import { uploadFile, getPublicUrl } from "../config/storage.js";
+import { processVideoForStorage } from "../utils/videoProcessor.js";
 
 // Helper function for URL validation
 const isValidUrl = (string) => {
@@ -701,6 +702,156 @@ export const uploadLessonVideo = async (req, res) => {
         console.error("❌ Upload lesson video error:", error);
         res.status(500).json({
             message: error.message || "Failed to upload video",
+            error: process.env.NODE_ENV === 'development' ? error : undefined
+        });
+    }
+};
+
+/**
+ * POST /api/courses/:courseId/lessons/:lessonId/upload-unified-video
+ * Upload a single video with multiple audio tracks for different languages
+ * Body: 
+ *   - video: Main video file (required)
+ *   - audioEnglish: English audio track (optional)
+ *   - audioHindi: Hindi audio track (optional)
+ *   - audioMarathi: Marathi audio track (optional)
+ * 
+ * For Electron apps: This stores the video and audio files separately,
+ * allowing the frontend to switch audio tracks without reloading the video.
+ */
+export const uploadUnifiedVideo = async (req, res) => {
+    try {
+        const { courseId, lessonId } = req.params;
+
+        if (!courseId || !lessonId) {
+            return res.status(400).json({ message: "Course ID and Lesson ID are required" });
+        }
+
+        const courseIdNum = parseInt(courseId);
+        const lessonIdNum = parseInt(lessonId);
+
+        if (isNaN(courseIdNum) || isNaN(lessonIdNum)) {
+            return res.status(400).json({ message: "Invalid course or lesson ID" });
+        }
+
+        // Verify course exists
+        const course = await getCourseById(courseIdNum);
+        if (!course) {
+            return res.status(404).json({ message: "Course not found" });
+        }
+
+        // Verify lesson exists and belongs to course
+        const lesson = await getLessonById(lessonIdNum);
+        if (!lesson || lesson.courseId !== courseIdNum) {
+            return res.status(404).json({ message: "Lesson not found in this course" });
+        }
+
+        const videoFile = req.files?.video?.[0];
+        if (!videoFile) {
+            return res.status(400).json({ message: "Video file is required" });
+        }
+
+        // Language configuration
+        const languageConfig = {
+            english: req.files?.audioEnglish?.[0],
+            hindi: req.files?.audioHindi?.[0],
+            marathi: req.files?.audioMarathi?.[0],
+        };
+
+        const languageLabels = {
+            english: "English",
+            hindi: "Hindi",
+            marathi: "Marathi",
+        };
+
+        // Process video file with FFmpeg for web compatibility (H.264/AAC)
+        console.log(`📤 Processing unified video for lesson ${lessonIdNum}...`);
+        console.log(`   Original video: ${videoFile.originalname} (${Math.round(videoFile.size / 1024 / 1024)}MB)`);
+        
+        let videoResult;
+        try {
+            // Use processVideoForStorage which transcodes to H.264/AAC
+            videoResult = await processVideoForStorage(videoFile.buffer, videoFile.originalname);
+            console.log(`✅ Video processed and uploaded: ${videoResult.url}`);
+        } catch (processError) {
+            console.error("Video processing failed, uploading original:", processError);
+            // Fallback to direct upload if processing fails
+            videoResult = await uploadFile(
+                videoFile.buffer,
+                `lesson-${lessonIdNum}-unified-${Date.now()}.mp4`,
+                {
+                    type: 'videos',
+                    contentType: videoFile.mimetype
+                }
+            );
+        }
+
+        if (!videoResult || !videoResult.url) {
+            return res.status(500).json({ message: "Failed to upload video to storage" });
+        }
+
+        // Upload audio tracks and build audio tracks array
+        const audioTracks = [];
+        const audioFiles = {
+            english: req.files?.audioEnglish?.[0],
+            hindi: req.files?.audioHindi?.[0],
+            marathi: req.files?.audioMarathi?.[0],
+        };
+
+        for (const [lang, audioFile] of Object.entries(audioFiles)) {
+            if (audioFile) {
+                const audioResult = await uploadFile(
+                    audioFile.buffer,
+                    `lesson-${lessonIdNum}-${lang}-${Date.now()}.${audioFile.mimetype.includes('mp3') ? 'mp3' : 'm4a'}`,
+                    {
+                        type: 'audio',
+                        contentType: audioFile.mimetype
+                    }
+                );
+
+                if (audioResult?.url) {
+                    audioTracks.push({
+                        language: lang,
+                        label: languageLabels[lang] || lang,
+                        audioUrl: audioResult.url,
+                    });
+                    console.log(`✅ ${languageLabels[lang]} audio track uploaded`);
+                }
+            }
+        }
+
+        // Update lesson with unified video URL and audio tracks
+        const updatedLesson = await updateLesson(lessonIdNum, {
+            unifiedVideoUrl: videoResult.url,
+            audioTracks: JSON.stringify(audioTracks),
+        });
+
+        console.log(`✅ Unified video uploaded for lesson ${lessonIdNum} with ${audioTracks.length} audio tracks`);
+
+        // Build optimization info if available
+        const optimizationInfo = videoResult.compressionRatio && videoResult.compressionRatio < 1
+            ? {
+                originalSizeMB: Math.round((videoResult.originalSize || videoFile.size) / (1024 * 1024) * 100) / 100,
+                compressedSizeMB: Math.round((videoResult.compressedSize || videoFile.size) / (1024 * 1024) * 100) / 100,
+                compressionRatio: videoResult.compressionRatio,
+                processingTime: videoResult.processingTime,
+            }
+            : null;
+
+        res.status(200).json({
+            message: "Unified video uploaded successfully",
+            lesson: updatedLesson,
+            video: {
+                url: videoResult.url,
+                size: videoFile.size,
+            },
+            audioTracks: audioTracks,
+            optimization: optimizationInfo,
+        });
+    } catch (error) {
+        console.error("❌ Upload unified video error:", error);
+        res.status(500).json({
+            message: error.message || "Failed to upload unified video",
             error: process.env.NODE_ENV === 'development' ? error : undefined
         });
     }

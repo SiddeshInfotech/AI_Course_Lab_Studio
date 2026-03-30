@@ -383,6 +383,7 @@ export default function AdminDashboard() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  const [showCenterForm, setShowCenterForm] = useState(false);
 
   const [deleteDialog, setDeleteDialog] = useState<{
     type: "student" | "course";
@@ -981,6 +982,7 @@ export default function AdminDashboard() {
     setCenterForm(emptyCenterForm);
     setCenterFormMode("add");
     setEditingCenterId(null);
+    setShowCenterForm(false);
   };
 
   const handleCenterSubmit = async () => {
@@ -1042,6 +1044,7 @@ export default function AdminDashboard() {
     });
     setCenterFormMode("edit");
     setEditingCenterId(center.id);
+    setShowCenterForm(true);
   };
 
   const handleCenterDelete = async (centerId: string) => {
@@ -1523,15 +1526,27 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 xl:grid-cols-1 gap-5">
                 <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
                   <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-slate-200 flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-900">
                       Center List
                     </h3>
-                    <span className="text-xs text-slate-600 font-medium">
-                      {centers.length} total centers
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-600 font-medium">
+                        {centers.length} total centers
+                      </span>
+                      <button
+                        onClick={() => {
+                          setCenterFormMode("add");
+                          setShowCenterForm(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Create Center
+                      </button>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -1631,276 +1646,6 @@ export default function AdminDashboard() {
                     </div>
                   )}
                 </div>
-
-                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-indigo-50 to-slate-50 border-b border-slate-200">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      {centerFormMode === "add" ? "Add Center" : "Edit Center"}
-                    </h3>
-                    {centerFormMode === "edit" && (
-                      <button
-                        onClick={resetCenterForm}
-                        className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-                      >
-                        Cancel Edit
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-3 p-6">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Center Name
-                      </label>
-                      <input
-                        type="text"
-                        value={centerForm.centerName}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            centerName: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        School Name
-                      </label>
-                      <input
-                        type="text"
-                        value={centerForm.schoolName}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            schoolName: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Center Code
-                      </label>
-                      <input
-                        type="text"
-                        value={centerForm.centerCode}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            centerCode: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Contact Person Name
-                      </label>
-                      <input
-                        type="text"
-                        value={centerForm.contactPerson}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            contactPerson: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Phone Number
-                      </label>
-                      <input
-                        type="text"
-                        value={centerForm.phoneNumber}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            phoneNumber: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Email Address
-                      </label>
-                      <input
-                        type="email"
-                        value={centerForm.email}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            email: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Board / Curriculum
-                      </label>
-                      <select
-                        value={centerForm.boardOrCurriculum}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            boardOrCurriculum: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      >
-                        <option value="">Select board</option>
-                        <option value="CBSE">CBSE</option>
-                        <option value="ICSE">ICSE</option>
-                        <option value="State Board">State Board</option>
-                        <option value="IB">IB</option>
-                        <option value="Cambridge">Cambridge</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Center Admin ID
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={centerForm.centerAdminId}
-                          onChange={(e) =>
-                            setCenterForm((prev) => ({
-                              ...prev,
-                              centerAdminId: e.target.value,
-                            }))
-                          }
-                          placeholder="Auto-generated center admin ID"
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const existingIds = new Set(
-                              centers
-                                .filter(
-                                  (center) => center.id !== editingCenterId,
-                                )
-                                .map((center) =>
-                                  center.centerAdminId.trim().toUpperCase(),
-                                ),
-                            );
-                            let nextId = generateCenterAdminId(
-                              centerForm.centerCode,
-                            );
-                            while (
-                              existingIds.has(nextId.trim().toUpperCase())
-                            ) {
-                              nextId = generateCenterAdminId(
-                                centerForm.centerCode,
-                              );
-                            }
-                            setCenterForm((prev) => ({
-                              ...prev,
-                              centerAdminId: nextId,
-                            }));
-                          }}
-                          className="px-3 py-2.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50"
-                        >
-                          Generate
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Center Admin Password
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={centerForm.centerAdminPassword}
-                          onChange={(e) =>
-                            setCenterForm((prev) => ({
-                              ...prev,
-                              centerAdminPassword: e.target.value,
-                            }))
-                          }
-                          placeholder="Auto-generated password"
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const existingPasswords = new Set(
-                              centers
-                                .filter(
-                                  (center) => center.id !== editingCenterId,
-                                )
-                                .map((center) => center.centerAdminPassword),
-                            );
-                            let nextPassword = generateCenterAdminPassword();
-                            while (existingPasswords.has(nextPassword)) {
-                              nextPassword = generateCenterAdminPassword();
-                            }
-                            setCenterForm((prev) => ({
-                              ...prev,
-                              centerAdminPassword: nextPassword,
-                            }));
-                          }}
-                          className="px-3 py-2.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50"
-                        >
-                          Generate
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Status
-                      </label>
-                      <select
-                        value={centerForm.status}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            status: e.target.value as "Active" | "Inactive",
-                          }))
-                        }
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Inactive">Inactive</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                        Address
-                      </label>
-                      <textarea
-                        value={centerForm.address}
-                        onChange={(e) =>
-                          setCenterForm((prev) => ({
-                            ...prev,
-                            address: e.target.value,
-                          }))
-                        }
-                        rows={3}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleCenterSubmit}
-                    className="w-full mt-4 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
-                  >
-                    {centerFormMode === "add" ? "Add Center" : "Update Center"}
-                  </button>
-                </div>
               </div>
             </div>
           )}
@@ -1949,6 +1694,250 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCenterForm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="w-full max-w-lg max-h-[90vh] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-slate-50">
+                <h3 className="text-base font-bold text-slate-900">
+                  {centerFormMode === "add"
+                    ? "Create New Center"
+                    : "Edit Center"}
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowCenterForm(false);
+                    resetCenterForm();
+                  }}
+                  className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Center Name
+                  </label>
+                  <input
+                    type="text"
+                    value={centerForm.centerName}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        centerName: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    School Name
+                  </label>
+                  <input
+                    type="text"
+                    value={centerForm.schoolName}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        schoolName: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Center Code
+                  </label>
+                  <input
+                    type="text"
+                    value={centerForm.centerCode}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        centerCode: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Contact Person
+                  </label>
+                  <input
+                    type="text"
+                    value={centerForm.contactPerson}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        contactPerson: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    value={centerForm.phoneNumber}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        phoneNumber: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={centerForm.email}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({ ...p, email: e.target.value }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Board / Curriculum
+                  </label>
+                  <select
+                    value={centerForm.boardOrCurriculum}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        boardOrCurriculum: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  >
+                    <option value="">Select board</option>
+                    <option value="CBSE">CBSE</option>
+                    <option value="ICSE">ICSE</option>
+                    <option value="State Board">State Board</option>
+                    <option value="IB">IB</option>
+                    <option value="Cambridge">Cambridge</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Center Admin ID
+                  </label>
+                  <input
+                    type="text"
+                    value={centerForm.centerAdminId}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        centerAdminId: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  />
+                </div>
+                {centerFormMode === "add" && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      Center Admin Password
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={centerForm.centerAdminPassword}
+                        onChange={(e) =>
+                          setCenterForm((p) => ({
+                            ...p,
+                            centerAdminPassword: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const existing = new Set(
+                            centers
+                              .filter((c) => c.id !== editingCenterId)
+                              .map((c) => c.centerAdminPassword),
+                          );
+                          let pwd = generateCenterAdminPassword();
+                          while (existing.has(pwd))
+                            pwd = generateCenterAdminPassword();
+                          setCenterForm((p) => ({
+                            ...p,
+                            centerAdminPassword: pwd,
+                          }));
+                        }}
+                        className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50"
+                      >
+                        Generate
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Status
+                  </label>
+                  <select
+                    value={centerForm.status}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({
+                        ...p,
+                        status: e.target.value as "Active" | "Inactive",
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Address
+                  </label>
+                  <textarea
+                    value={centerForm.address}
+                    onChange={(e) =>
+                      setCenterForm((p) => ({ ...p, address: e.target.value }))
+                    }
+                    rows={3}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-xs resize-none"
+                  />
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowCenterForm(false);
+                    resetCenterForm();
+                  }}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCenterSubmit}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg"
+                >
+                  {centerFormMode === "add" ? "Create Center" : "Update Center"}
+                </button>
               </div>
             </div>
           </div>

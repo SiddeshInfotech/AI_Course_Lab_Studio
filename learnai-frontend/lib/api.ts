@@ -1679,6 +1679,181 @@ export const api = {
       },
     },
   },
+
+  center: {
+    async login(centerAdminId: string, password: string) {
+      const response = await fetch(`${API_BASE_URL}/center/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ centerAdminId, password }),
+      });
+      return parseResponse<{
+        message: string;
+        accessToken: string;
+        refreshToken: string;
+        center: {
+          id: number;
+          centerName: string;
+          schoolName: string;
+          centerCode: string;
+          contactPerson: string;
+          phoneNumber: string;
+          email: string;
+          status: string;
+        };
+      }>(response);
+    },
+
+    async getProfile() {
+      const response = await fetch(`${API_BASE_URL}/center/me`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+      });
+      return parseResponse<{
+        center: {
+          id: number;
+          centerName: string;
+          schoolName: string;
+          centerCode: string;
+          contactPerson: string;
+          phoneNumber: string;
+          email: string;
+          status: string;
+          totalStudents: number;
+        };
+      }>(response);
+    },
+
+    async getDashboardStats() {
+      const response = await fetch(`${API_BASE_URL}/center/dashboard/stats`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+      });
+      return parseResponse<{
+        stats: {
+          totalStudents: number;
+          enrolledCourses: number;
+          completedCourses: number;
+          inProgressCourses: number;
+          totalLearningHours: number;
+          averageProgress: number;
+          activeToday: number;
+        };
+      }>(response);
+    },
+
+    async getStudents(params?: { page?: number; limit?: number; search?: string; course?: string }) {
+      const query = new URLSearchParams();
+      if (params?.page) query.set("page", params.page.toString());
+      if (params?.limit) query.set("limit", params.limit.toString());
+      if (params?.search) query.set("search", params.search);
+      if (params?.course) query.set("course", params.course);
+
+      const response = await fetch(`${API_BASE_URL}/center/students?${query}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+      });
+      return parseResponse<{
+        students: Array<{
+          id: number;
+          name: string;
+          username: string;
+          email: string | null;
+          rollNumber: string | null;
+          createdAt: string;
+          enrolledCourses: Array<{ id: number; title: string; enrolledAt: string }>;
+          totalCourses: number;
+          completedCourses: number;
+          avgProgress: number;
+          lastActivity: string | null;
+          dailyUsageLast7Days: number;
+        }>;
+        pagination: { total: number; page: number; limit: number; totalPages: number };
+      }>(response);
+    },
+
+    async getStudentDetails(studentId: number) {
+      const response = await fetch(`${API_BASE_URL}/center/students/${studentId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+      });
+      return parseResponse<{
+        student: {
+          id: number;
+          name: string;
+          username: string;
+          email: string | null;
+          rollNumber: string | null;
+          createdAt: string;
+        };
+        coursesProgress: Array<{
+          course: { id: number; title: string; category: string; level: string; totalLessons: number };
+          enrolledAt: string;
+          progress: {
+            completed: boolean;
+            currentLessonId: number;
+            startedAt: string;
+            completedAt: string | null;
+            lastAccessedAt: string;
+            completedLessons: number;
+            progressPercentage: number;
+          };
+          lessons: Array<{
+            lessonId: number;
+            title: string;
+            section: string | null;
+            orderIndex: number;
+            completed: boolean;
+            completedAt: string | null;
+          }>;
+        }>;
+        totalLearningHours: number;
+        learningStreak: number;
+        dailyUsage: Array<{ date: string; seconds: number; hours: number }>;
+      }>(response);
+    },
+
+    async getCourses() {
+      const response = await fetch(`${API_BASE_URL}/center/courses`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+      });
+      return parseResponse<{
+        courses: Array<{
+          id: number;
+          title: string;
+          category: string;
+          level: string;
+          instructor: string;
+          duration: string;
+          totalLessons: number;
+          enrolledStudents: number;
+          completedStudents: number;
+          inProgressStudents: number;
+          completionRate: number;
+        }>;
+      }>(response);
+    },
+
+    async getActivity(limit?: number) {
+      const response = await fetch(`${API_BASE_URL}/center/activity?limit=${limit || 50}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+      });
+      return parseResponse<{
+        activities: Array<{
+          type: "lesson_complete" | "course_complete";
+          userId: number;
+          userName: string;
+          timestamp: string;
+          data: Record<string, unknown>;
+        }>;
+      }>(response);
+    },
+
+    async logout(refreshToken: string) {
+      const response = await fetch(`${API_BASE_URL}/center/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      return parseResponse<{ message: string }>(response);
+    },
+  },
 };
 
 export { ApiResponseError };

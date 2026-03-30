@@ -65,6 +65,9 @@ interface LessonItem {
     hindi?: string | null;
     marathi?: string | null;
   };
+  unifiedVideoUrl?: string | null;
+  audioTracks?: any[];
+  preferredAudioTrack?: number;
   objectives: string[];
   orderIndex: number;
 }
@@ -77,6 +80,9 @@ interface CurriculumSection {
 }
 
 interface CurrentLesson {
+  preferredAudioTrack?: number;
+  unifiedVideoUrl?: string | null;
+  audioTracks?: any;
   id: number;
   title: string;
   type: string;
@@ -176,6 +182,13 @@ const isBackendHostedVideo = (url: string): boolean =>
   url.includes("/api/media/");
 
 // Enhanced video player component for direct file playback from uploads folder
+// Now supports unified video with multiple audio tracks
+interface AudioTrack {
+  language: string;
+  label: string;
+  audioUrl: string;
+}
+
 const DatabaseVideoPlayer = forwardRef<
   LessonVideoPlayerHandle,
   {
@@ -183,16 +196,22 @@ const DatabaseVideoPlayer = forwardRef<
     title: string;
     className?: string;
     onStateChange?: (state: LessonVideoPlayerState) => void;
+    audioTracks?: AudioTrack[];
+    preferredAudioTrack?: number;
+    onAudioTrackChange?: (trackIndex: number) => void;
   }
 >(function DatabaseVideoPlayer(
-  { videoUrl, title, className = "", onStateChange },
+  { videoUrl, title, className = "", onStateChange, audioTracks = [], preferredAudioTrack = 0, onAudioTrackChange },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const maxTimeReachedRef = useRef(0);
   const cleanupWatermarkRef = useRef<(() => void) | null>(null);
   const isFullscreenRef = useRef(false);
+  const isAudioSyncRef = useRef(false);
+  const audioStartTimeRef = useRef(0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -206,12 +225,31 @@ const DatabaseVideoPlayer = forwardRef<
   const [volume, setVolume] = useState(1);
   const [userId, setUserId] = useState<string | null>(null);
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(null);
+  const [currentAudioTrack, setCurrentAudioTrack] = useState(0);
+  const [showAudioSelector, setShowAudioSelector] = useState(false);
   
   // Video watch time limit state
   const [isLimitExceeded, setIsLimitExceeded] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number>(0);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [isCheckingLimit, setIsCheckingLimit] = useState(false);
+
+  // Safely check if audio tracks exist and have valid entries
+  // Handle case where audioTracks might be a string (JSON) instead of array
+  const parsedAudioTracks = Array.isArray(audioTracks) 
+    ? audioTracks 
+    : (typeof audioTracks === 'string' && audioTracks) 
+      ? JSON.parse(audioTracks) 
+      : [];
+  
+  const hasAudioTracks = parsedAudioTracks.length > 0;
+  
+  // Update current audio track when preferred changes
+  useEffect(() => {
+    if (preferredAudioTrack !== undefined && preferredAudioTrack !== null) {
+      setCurrentAudioTrack(preferredAudioTrack);
+    }
+  }, [preferredAudioTrack]);
 
   // Function to check usage limit
   const checkUsageLimit = async () => {
@@ -347,20 +385,41 @@ const DatabaseVideoPlayer = forwardRef<
 
     const isAlreadyFullscreen = 
       document.fullscreenElement !== null || 
-      (document as any).webkitFullscreenElement !== null;
+      (document as any).webkitFullscreenElement !== null ||
+      document.pictureInPictureElement !== null;
 
-    if (!isAlreadyFullscreen) {
-      if (container.requestFullscreen) {
-        await container.requestFullscreen();
-      } else if ((container as any).webkitRequestFullscreen) {
-        await (container as any).webkitRequestFullscreen();
+    try {
+      if (!isAlreadyFullscreen) {
+        // Use video element for fullscreen (like YouTube)
+        const requestFullscreen = 
+          video.requestFullscreen || 
+          (video as any).webkitRequestFullscreen || 
+          (video as any).webkitEnterFullscreen;
+        
+        if (requestFullscreen) {
+          await requestFullscreen.call(video);
+        } else {
+          // Fallback to container
+          const containerRequest = 
+            container.requestFullscreen || 
+            (container as any).webkitRequestFullscreen;
+          
+          if (containerRequest) {
+            await containerRequest.call(container);
+          }
+        }
+      } else {
+        // Exit fullscreen
+        const exitFullscreen = 
+          document.exitFullscreen || 
+          (document as any).webkitExitFullscreen;
+        
+        if (exitFullscreen) {
+          await exitFullscreen.call(document);
+        }
       }
-    } else {
-      if (document.exitFullscreen) {
-        await document.exitFullscreen();
-      } else if ((document as any).webkitExitFullscreen) {
-        await (document as any).webkitExitFullscreen();
-      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
     }
   };
 
@@ -395,9 +454,38 @@ const DatabaseVideoPlayer = forwardRef<
       const isFs = 
         document.fullscreenElement !== null || 
         (document as any).webkitFullscreenElement !== null;
+      
       setIsFullscreen(isFs);
       isFullscreenRef.current = isFs;
       setIsDomFullscreen(isFs);
+      
+      // Fix overflow issues for fullscreen
+      const container = containerRef.current;
+      if (container) {
+        if (isFs) {
+          container.style.overflow = 'visible';
+          container.style.position = 'fixed';
+          container.style.top = '0';
+          container.style.left = '0';
+          container.style.width = '100vw';
+          container.style.height = '100vh';
+          container.style.zIndex = '999999';
+          container.style.maxWidth = '100vw';
+          container.style.maxHeight = '100vh';
+          container.classList.remove('rounded-2xl', 'border', 'border-slate-800');
+        } else {
+          container.style.overflow = '';
+          container.style.position = '';
+          container.style.top = '';
+          container.style.left = '';
+          container.style.width = '';
+          container.style.height = '';
+          container.style.zIndex = '';
+          container.style.maxWidth = '';
+          container.style.maxHeight = '';
+          container.classList.add('rounded-2xl', 'border', 'border-slate-800');
+        }
+      }
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -428,11 +516,12 @@ const DatabaseVideoPlayer = forwardRef<
       maxTimeReachedRef.current = 0;
 
       console.log("🎬 Resolving video URL:", videoUrl);
+      console.log("   Current API_ORIGIN:", API_ORIGIN);
 
-      if (!videoUrl) {
+      if (!videoUrl || videoUrl === 'null' || videoUrl === 'undefined') {
         setResolvedVideoUrl(null);
         setIsLoading(false);
-        console.log("❌ No video URL provided");
+        console.log("❌ No video URL provided or invalid URL");
         return;
       }
 
@@ -462,8 +551,16 @@ const DatabaseVideoPlayer = forwardRef<
 
         console.log("🔗 Using direct URL:", videoUrl);
         if (isActive) {
-          setResolvedVideoUrl(videoUrl);
-          setIsLoading(false); // URL resolved, let video element handle loading
+          // Validate URL format
+          if (videoUrl.startsWith('http') || videoUrl.startsWith('/')) {
+            console.log("✅ Valid URL format, setting resolvedVideoUrl");
+            setResolvedVideoUrl(videoUrl);
+            setIsLoading(false);
+          } else {
+            console.error("❌ Invalid URL format:", videoUrl);
+            setError("Invalid video URL format");
+            setIsLoading(false);
+          }
         }
       } catch (resolveError) {
         console.error("❌ Failed to resolve video URL:", resolveError);
@@ -485,9 +582,17 @@ const DatabaseVideoPlayer = forwardRef<
   // Video element event handlers
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !resolvedVideoUrl) return;
+    if (!video) return;
+    
+    console.log("📹 Video useEffect - resolvedVideoUrl:", resolvedVideoUrl);
+    
+    if (!resolvedVideoUrl) {
+      console.log("❌ No resolved video URL, not setting up video events");
+      return;
+    }
 
     const handleLoadedData = () => {
+      console.log("✅ Video loaded successfully");
       setIsLoading(false);
       setDuration(video.duration);
     };
@@ -511,8 +616,41 @@ const DatabaseVideoPlayer = forwardRef<
     };
 
     const handleError = (e: Event) => {
-      console.error("❌ Video playback error:", (e.target as any)?.error);
-      setError("Failed to load video. Please try again.");
+      const video = e.target as HTMLVideoElement;
+      const videoError = video?.error;
+      const videoSrc = video?.src || 'empty/undefined';
+      
+      console.error("❌ Video playback error:", {
+        error: videoError,
+        errorCode: videoError?.code,
+        errorMessage: videoError?.message,
+        videoSrc: videoSrc.substring(0, 100), // First 100 chars of URL
+        networkState: video?.networkState,
+        readyState: video?.readyState,
+      });
+      
+      let errorMessage = "Failed to load video. Please try again.";
+      
+      if (videoError) {
+        switch (videoError.code) {
+          case 1: // MEDIA_ERR_ABORTED
+            errorMessage = videoSrc === '' || videoSrc === 'empty/undefined'
+              ? "Video URL is empty or invalid."
+              : "Video playback was aborted.";
+            break;
+          case 2: // MEDIA_ERR_NETWORK
+            errorMessage = "Network error while loading video. Check your connection.";
+            break;
+          case 3: // MEDIA_ERR_DECODE
+            errorMessage = "Video format not supported. Please contact support.";
+            break;
+          case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+            errorMessage = "Video format or URL not supported.";
+            break;
+        }
+      }
+      
+      setError(errorMessage);
       setIsLoading(false);
     };
 
@@ -644,6 +782,103 @@ const DatabaseVideoPlayer = forwardRef<
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
+  // Handle audio track switching
+  const handleAudioTrackSwitch = (trackIndex: number) => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    
+    if (!video || !audio) return;
+
+    const wasPlaying = !video.paused;
+    const currentVideoTime = video.currentTime;
+    
+    // Store current time to sync audio
+    audioStartTimeRef.current = currentVideoTime;
+    
+    // Update current track
+    setCurrentAudioTrack(trackIndex);
+    onAudioTrackChange?.(trackIndex);
+    setShowAudioSelector(false);
+    
+    // If playing, restart from current position with new audio
+    if (wasPlaying) {
+      audio.currentTime = currentVideoTime;
+      audio.play().catch(console.error);
+    }
+  };
+
+  // Sync audio with video
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    
+    if (!video || !audio || !hasAudioTracks) return;
+
+    const syncAudio = () => {
+      if (audio.paused && !video.paused && video.currentTime >= audioStartTimeRef.current) {
+        audio.currentTime = video.currentTime;
+        audio.play().catch(console.error);
+      }
+      
+      // If video is paused, pause audio
+      if (video.paused && !audio.paused) {
+        audio.pause();
+      }
+      
+      // If audio is ahead of video, sync it back
+      if (!audio.paused && audio.currentTime > video.currentTime + 0.5) {
+        audio.currentTime = video.currentTime;
+      }
+    };
+
+    const handleVideoPlay = () => {
+      if (hasAudioTracks && parsedAudioTracks[currentAudioTrack]) {
+        audio.currentTime = video.currentTime;
+        audio.play().catch(console.error);
+      }
+    };
+
+    const handleVideoPause = () => {
+      if (hasAudioTracks) {
+        audio.pause();
+      }
+    };
+
+    const handleVideoSeeked = () => {
+      if (hasAudioTracks) {
+        audioStartTimeRef.current = video.currentTime;
+        audio.currentTime = video.currentTime;
+      }
+    };
+
+    const handleVideoEnded = () => {
+      if (hasAudioTracks) {
+        audio.pause();
+      }
+    };
+
+    const handleAudioEnded = () => {
+      video.pause();
+    };
+
+    const intervalId = setInterval(syncAudio, 100);
+    
+    video.addEventListener("play", handleVideoPlay);
+    video.addEventListener("pause", handleVideoPause);
+    video.addEventListener("seeked", handleVideoSeeked);
+    video.addEventListener("ended", handleVideoEnded);
+    audio.addEventListener("ended", handleAudioEnded);
+
+    return () => {
+      clearInterval(intervalId);
+      video.removeEventListener("play", handleVideoPlay);
+      video.removeEventListener("pause", handleVideoPause);
+      video.removeEventListener("seeked", handleVideoSeeked);
+      video.removeEventListener("ended", handleVideoEnded);
+      audio.removeEventListener("ended", handleAudioEnded);
+    };
+  }, [hasAudioTracks, parsedAudioTracks, currentAudioTrack]);
+
   if (error) {
     return (
       <div
@@ -685,18 +920,66 @@ const DatabaseVideoPlayer = forwardRef<
       {/* Video Element */}
       <video
         ref={videoRef}
-        className="w-full h-full object-contain"
+        className={`w-full h-full ${isFullscreen ? 'object-contain' : 'object-contain'}`}
         preload="metadata"
         controls
         onContextMenu={(e) => e.preventDefault()}
         controlsList="nodownload noplaybackrate"
         disablePictureInPicture
         src={resolvedVideoUrl || undefined}
+        crossOrigin="anonymous"
       >
         <p className="text-white text-center p-4">
           Your browser doesn't support video playback.
         </p>
       </video>
+
+      {/* Hidden Audio Element for Multi-Language Support */}
+      {hasAudioTracks && parsedAudioTracks[currentAudioTrack] && (
+        <audio
+          ref={audioRef}
+          src={parsedAudioTracks[currentAudioTrack].audioUrl}
+          preload="metadata"
+        />
+      )}
+
+      {/* Audio Track Selector */}
+      {hasAudioTracks && (
+        <div className={`absolute top-4 left-4 z-20 ${isFullscreen ? "opacity-0 group-hover:opacity-100" : ""} transition-opacity`}>
+          <button
+            onClick={() => setShowAudioSelector(!showAudioSelector)}
+            className="flex items-center gap-2 rounded-lg bg-black/60 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-black/80"
+            title="Change audio track"
+          >
+            <Globe className="w-4 h-4" />
+            <span>{parsedAudioTracks[currentAudioTrack]?.label || "Audio"}</span>
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          
+          {showAudioSelector && (
+            <div className="absolute top-full left-0 mt-2 bg-black/90 backdrop-blur-sm rounded-lg overflow-hidden shadow-xl min-w-[150px]">
+              {parsedAudioTracks.map((track: AudioTrack, index: number) => (
+                <button
+                  key={track.language}
+                  onClick={() => handleAudioTrackSwitch(index)}
+                  className={`w-full px-4 py-2.5 text-left text-sm transition-colors ${
+                    index === currentAudioTrack
+                      ? "bg-indigo-600 text-white"
+                      : "text-white hover:bg-white/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span>{track.label}</span>
+                    {index === currentAudioTrack && (
+                      <CheckCircle2 className="w-4 h-4" />
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Loading Overlay */}
       {(isLoading || !resolvedVideoUrl) && !error && (
@@ -1004,16 +1287,28 @@ const YouTubeVideoPlayer = ({
 };
 
 // Smart video player that detects video type
+interface AudioTrack {
+  language: string;
+  label: string;
+  audioUrl: string;
+}
+
 const SmartVideoPlayer = ({
   videoUrl,
   title,
   playerRef,
   onDatabasePlayerStateChange,
+  audioTracks,
+  preferredAudioTrack,
+  onAudioTrackChange,
 }: {
   videoUrl: string;
   title: string;
   playerRef?: RefObject<LessonVideoPlayerHandle | null>;
   onDatabasePlayerStateChange?: (state: LessonVideoPlayerState) => void;
+  audioTracks?: AudioTrack[];
+  preferredAudioTrack?: number;
+  onAudioTrackChange?: (trackIndex: number) => void;
 }) => {
   // Detect video type
   const isDataBaseVideo = isBackendHostedVideo(videoUrl);
@@ -1030,6 +1325,9 @@ const SmartVideoPlayer = ({
         title={title}
         className={playerClassName}
         onStateChange={onDatabasePlayerStateChange}
+        audioTracks={audioTracks}
+        preferredAudioTrack={preferredAudioTrack}
+        onAudioTrackChange={onAudioTrackChange}
       />
     );
   } else if (isYouTubeVideo) {
@@ -1832,8 +2130,8 @@ function LearningPageContent() {
         {/* ── RIGHT: Main content (video + simplified below) ── */}
         <main className="flex-1 overflow-y-auto bg-[#F8FAFC]">
           <div className="max-w-4xl mx-auto p-6 md:p-8">
-            {/* Video Language Selector */}
-            {currentLesson?.languages && (
+            {/* Video Language Selector - Only show for legacy videos without unified audio tracks */}
+            {currentLesson?.languages && !currentLesson?.audioTracks?.length && (
               <div className="mb-4 flex items-center gap-3 bg-white px-4 py-3 rounded-lg border border-slate-200 shadow-sm">
                 <Globe className="w-4 h-4 text-indigo-600" />
                 <span className="text-sm font-medium text-slate-700">Video Language:</span>
@@ -1851,8 +2149,18 @@ function LearningPageContent() {
               </div>
             )}
 
+            {/* Info banner for unified video */}
+            {currentLesson?.audioTracks?.length ? (
+              <div className="mb-4 flex items-center gap-3 bg-indigo-50 px-4 py-3 rounded-lg border border-indigo-200">
+                <Globe className="w-4 h-4 text-indigo-600" />
+                <span className="text-sm font-medium text-indigo-700">
+                  Multi-language audio available - Use the language selector on the video player to switch
+                </span>
+              </div>
+            ) : null}
+
             {/* Enhanced Video Player Container - Supports Database & YouTube Videos */}
-            {currentLesson?.videoUrl ? (
+            {currentLesson?.videoUrl || currentLesson?.unifiedVideoUrl ? (
               <div
                 className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden border border-slate-800 mb-6"
                 onContextMenu={(e) => {
@@ -1861,12 +2169,14 @@ function LearningPageContent() {
                 }}
               >
                 <SmartVideoPlayer
-                  videoUrl={getVideoUrlForLanguage(currentLesson) || currentLesson.videoUrl}
+                  videoUrl={currentLesson.unifiedVideoUrl || currentLesson.videoUrl || ""}
                   title={currentLesson.title}
                   playerRef={
                     isControllableCurrentVideo ? lessonVideoPlayerRef : undefined
                   }
                   onDatabasePlayerStateChange={setLessonVideoPlayerState}
+                  audioTracks={currentLesson.audioTracks || []}
+                  preferredAudioTrack={currentLesson.preferredAudioTrack}
                 />
 
                 {/* Screenshot Prevention Canvas */}

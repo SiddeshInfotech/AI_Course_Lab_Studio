@@ -1,5 +1,6 @@
 import express from "express";
 import prisma from "../config/db.js";
+import bcrypt from "bcrypt";
 import authMiddleware from "../middleware/authMiddleware.js";
 import adminMiddleware from "../middleware/adminMiddleware.js";
 
@@ -65,6 +66,9 @@ router.post("/", async (req, res) => {
             return res.status(400).json({ message: "Center admin ID already exists" });
         }
 
+        // Hash the center admin password
+        const hashedPassword = await bcrypt.hash(centerAdminPassword, 10);
+
         const center = await prisma.center.create({
             data: {
                 centerName,
@@ -76,7 +80,7 @@ router.post("/", async (req, res) => {
                 address,
                 boardOrCurriculum,
                 centerAdminId: centerAdminId.toUpperCase(),
-                centerAdminPassword,
+                centerAdminPassword: hashedPassword,
                 status: "Active",
             },
         });
@@ -105,21 +109,28 @@ router.patch("/:id", async (req, res) => {
             status,
         } = req.body;
 
+        // Prepare update data
+        const updateData = {
+            centerName,
+            schoolName,
+            centerCode: centerCode?.toUpperCase(),
+            contactPerson,
+            phoneNumber,
+            email: email?.toLowerCase(),
+            address,
+            boardOrCurriculum,
+            centerAdminId: centerAdminId?.toUpperCase(),
+            status,
+        };
+
+        // Hash password if provided
+        if (centerAdminPassword) {
+            updateData.centerAdminPassword = await bcrypt.hash(centerAdminPassword, 10);
+        }
+
         const center = await prisma.center.update({
             where: { id: parseInt(id) },
-            data: {
-                centerName,
-                schoolName,
-                centerCode: centerCode?.toUpperCase(),
-                contactPerson,
-                phoneNumber,
-                email: email?.toLowerCase(),
-                address,
-                boardOrCurriculum,
-                centerAdminId: centerAdminId?.toUpperCase(),
-                centerAdminPassword,
-                status,
-            },
+            data: updateData,
         });
 
         res.json(center);

@@ -31,6 +31,10 @@ import {
   Pause,
   PlayCircle,
   BarChart3,
+  Languages,
+  Music,
+  FileAudio,
+  Disc3,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -48,6 +52,11 @@ interface OptimizedVideo {
   url: string;
   thumbnailUrl?: string;
   createdAt: string;
+  isUnified?: boolean;
+  audioTracks?: Array<{
+    language: string;
+    audioUrl: string;
+  }>;
   lesson?: {
     id: number;
     title: string;
@@ -229,9 +238,18 @@ export default function OptimizedAdminVideoManagement() {
 
   // Modal states
   const [activeModal, setActiveModal] = useState<
-    "upload" | "external" | "link" | "delete" | null
+    "upload" | "external" | "link" | "delete" | "unified" | null
   >(null);
   const [selectedVideo, setSelectedVideo] = useState<OptimizedVideo | null>(null);
+
+  // Unified upload states
+  const [unifiedVideoFile, setUnifiedVideoFile] = useState<File | null>(null);
+  const [unifiedAudioEnglish, setUnifiedAudioEnglish] = useState<File | null>(null);
+  const [unifiedAudioHindi, setUnifiedAudioHindi] = useState<File | null>(null);
+  const [unifiedAudioMarathi, setUnifiedAudioMarathi] = useState<File | null>(null);
+  const [unifiedCourse, setUnifiedCourse] = useState<number | "">("");
+  const [unifiedLesson, setUnifiedLesson] = useState<number | "">("");
+  const [unifiedUploading, setUnifiedUploading] = useState(false);
 
   // Upload states - enhanced for chunked upload
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -251,6 +269,11 @@ export default function OptimizedAdminVideoManagement() {
     progress: 0,
     status: 'idle',
   });
+
+  // Audio management state
+  const [showAudioSection, setShowAudioSection] = useState(false);
+  const [lessonsWithAudio, setLessonsWithAudio] = useState<any[]>([]);
+  const [audioLoading, setAudioLoading] = useState(false);
 
   // External video states
   const [externalUrl, setExternalUrl] = useState("");
@@ -290,7 +313,61 @@ export default function OptimizedAdminVideoManagement() {
         courseId: selectedCourse !== "all" ? selectedCourse : undefined,
       });
 
-      setVideos(response.videos);
+      // Also fetch lessons with unified videos
+      let unifiedVideos: any[] = [];
+      try {
+        const courses = await api.courses.list() as any;
+        for (const course of courses) {
+          const lessonsRes = await api.courses.getLessons(course.id) as any;
+          const lessons = Array.isArray(lessonsRes) ? lessonsRes : (lessonsRes.lessons || []);
+          
+          for (const lesson of lessons) {
+            if (lesson.unifiedVideoUrl) {
+              // Parse audio tracks if they exist
+              let audioTracks: any[] = [];
+              if (lesson.audioTracks) {
+                if (typeof lesson.audioTracks === 'string') {
+                  try {
+                    audioTracks = JSON.parse(lesson.audioTracks);
+                  } catch {
+                    audioTracks = [];
+                  }
+                } else if (Array.isArray(lesson.audioTracks)) {
+                  audioTracks = lesson.audioTracks;
+                }
+              }
+              
+              unifiedVideos.push({
+                id: `unified-${lesson.id}`,
+                type: 'uploaded' as const,
+                title: lesson.title || 'Unified Video',
+                url: lesson.unifiedVideoUrl,
+                createdAt: lesson.createdAt || lesson.updatedAt || new Date().toISOString(),
+                isUnified: true,
+                audioTracks: audioTracks,
+                lesson: {
+                  id: lesson.id,
+                  title: lesson.title,
+                  orderIndex: lesson.orderIndex,
+                  courseId: course.id,
+                },
+                course: {
+                  id: course.id,
+                  title: course.title,
+                  category: course.category,
+                  level: course.level,
+                },
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load unified videos:", e);
+      }
+
+      // Combine regular videos with unified videos
+      const allVideos = [...response.videos, ...unifiedVideos];
+      setVideos(allVideos);
       setStats(response.stats);
       setCurrentPage(response.pagination.currentPage);
       setTotalPages(response.pagination.totalPages);
@@ -320,11 +397,59 @@ export default function OptimizedAdminVideoManagement() {
     }
   }, []);
 
+  const loadAudioLessons = useCallback(async () => {
+    try {
+      setAudioLoading(true);
+      const courses = await api.courses.list() as any;
+      const allLessons: any[] = [];
+      
+      for (const course of courses) {
+        const lessonsRes = await api.courses.getLessons(course.id) as any;
+        // lessonsRes might be { lessons: [...] } or just [...]
+        const lessons = Array.isArray(lessonsRes) ? lessonsRes : (lessonsRes.lessons || []);
+        
+        for (const lesson of lessons) {
+          // Parse audioTracks if it's a JSON string
+          let audioTracks = lesson.audioTracks;
+          if (typeof audioTracks === 'string') {
+            try {
+              audioTracks = JSON.parse(audioTracks);
+            } catch {
+              audioTracks = [];
+            }
+          }
+          
+          if (lesson.unifiedVideoUrl && audioTracks && Array.isArray(audioTracks) && audioTracks.length > 0) {
+            allLessons.push({
+              id: lesson.id,
+              title: lesson.title,
+              orderIndex: lesson.orderIndex,
+              courseId: course.id,
+              courseTitle: course.title,
+              audioTracks: audioTracks,
+            });
+          }
+        }
+      }
+      setLessonsWithAudio(allLessons);
+    } catch (err) {
+      console.error("Failed to load audio lessons:", err);
+    } finally {
+      setAudioLoading(false);
+    }
+  }, []);
+
   // Effects
   useEffect(() => {
     loadVideos(1);
     loadCourses();
   }, [loadVideos, loadCourses]);
+
+  useEffect(() => {
+    if (showAudioSection && lessonsWithAudio.length === 0) {
+      loadAudioLessons();
+    }
+  }, [showAudioSection, loadAudioLessons, lessonsWithAudio.length]);
 
   useEffect(() => {
     if (typeof uploadCourse === "number") {
@@ -334,6 +459,15 @@ export default function OptimizedAdminVideoManagement() {
       setUploadLesson("");
     }
   }, [uploadCourse, loadLessons]);
+
+  useEffect(() => {
+    if (typeof unifiedCourse === "number") {
+      loadLessons(unifiedCourse);
+    } else {
+      setLessons([]);
+      setUnifiedLesson("");
+    }
+  }, [unifiedCourse, loadLessons]);
 
   useEffect(() => {
     if (typeof externalCourse === "number") {
@@ -619,13 +753,20 @@ export default function OptimizedAdminVideoManagement() {
             <h3 className="font-medium text-gray-900 truncate" title={video.title}>
               {video.title}
             </h3>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                VIDEO_TYPES.find(type => type.value === video.type)?.color
-              }`}>
-                {video.type === 'uploaded' ? <Upload className="w-3 h-3 mr-1" /> : <ExternalLink className="w-3 h-3 mr-1" />}
-                {video.type}
-              </span>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {video.isUnified ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                  <Languages className="w-3 h-3 mr-1" />
+                  Unified
+                </span>
+              ) : (
+                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                  VIDEO_TYPES.find(type => type.value === video.type)?.color
+                }`}>
+                  {video.type === 'uploaded' ? <Upload className="w-3 h-3 mr-1" /> : <ExternalLink className="w-3 h-3 mr-1" />}
+                  {video.type}
+                </span>
+              )}
               {video.isCompressed && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                   <Zap className="w-3 h-3 mr-1" />
@@ -638,6 +779,18 @@ export default function OptimizedAdminVideoManagement() {
 
         {/* Video details */}
         <div className="space-y-2 text-sm text-gray-600 mb-4">
+          {/* Unified Video - Show audio tracks */}
+          {video.isUnified && video.audioTracks && video.audioTracks.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pb-2 border-b border-gray-100">
+              {video.audioTracks.map((track, idx) => (
+                <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                  <Music className="w-3 h-3 mr-1" />
+                  {track.language === 'en' ? 'EN' : track.language === 'hi' ? 'HI' : track.language === 'mr' ? 'MR' : track.language}
+                </span>
+              ))}
+            </div>
+          )}
+
           {video.size && (
             <div className="flex items-center justify-between">
               <span>Size:</span>
@@ -645,7 +798,7 @@ export default function OptimizedAdminVideoManagement() {
                 <span className="font-medium">{formatBytes(video.size)}</span>
                 {video.originalSize && video.originalSize !== video.size && (
                   <span className="text-green-600 text-xs">
-                    (-{formatBytes(video.originalSize - video.size)})
+                    (-{Math.round((1 - video.size / video.originalSize) * 100)}%)
                   </span>
                 )}
               </div>
@@ -658,13 +811,6 @@ export default function OptimizedAdminVideoManagement() {
               <span className="font-medium text-green-600">
                 {Math.round((1 - video.compressionRatio) * 100)}% saved
               </span>
-            </div>
-          )}
-
-          {video.processingTime && (
-            <div className="flex items-center justify-between">
-              <span>Processing:</span>
-              <span className="font-medium">{formatTime(video.processingTime)}</span>
             </div>
           )}
 
@@ -698,7 +844,19 @@ export default function OptimizedAdminVideoManagement() {
             >
               <Eye className="w-4 h-4" />
             </button>
-            {video.type === 'uploaded' && (
+            {video.isUnified && video.audioTracks && video.audioTracks.length > 0 && (
+              video.audioTracks.map((track, idx) => (
+                <button
+                  key={idx}
+                  className="p-1 text-gray-400 hover:text-purple-600 transition-colors"
+                  title={`Play ${track.language} audio`}
+                  onClick={() => window.open(track.audioUrl, '_blank')}
+                >
+                  <Music className="w-4 h-4" />
+                </button>
+              ))
+            )}
+            {video.type === 'uploaded' && !video.isUnified && (
               <>
                 <button
                   className="p-1 text-gray-400 hover:text-green-600 transition-colors"
@@ -747,6 +905,13 @@ export default function OptimizedAdminVideoManagement() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setActiveModal("unified")}
+            className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors flex items-center gap-2"
+          >
+            <Languages className="w-4 h-4" />
+            Unified Upload
+          </button>
           <button
             onClick={() => setActiveModal("upload")}
             className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2"
@@ -895,13 +1060,130 @@ export default function OptimizedAdminVideoManagement() {
         </>
       )}
 
+      {/* Audio Tracks Section Toggle */}
+      <div className="flex justify-center mb-6">
+        <button
+          onClick={() => setShowAudioSection(!showAudioSection)}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+            showAudioSection
+              ? "bg-purple-600 text-white border-purple-600"
+              : "bg-white text-purple-600 border-purple-200 hover:border-purple-400"
+          }`}
+        >
+          <Music className="w-4 h-4" />
+          {showAudioSection ? "Hide Audio Tracks" : "View Audio Tracks"}
+        </button>
+      </div>
+
+      {/* Audio Tracks Section */}
+      {showAudioSection && (
+        <div className="space-y-4">
+          {audioLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+              <span className="ml-3 text-slate-600">Loading audio tracks...</span>
+            </div>
+          ) : lessonsWithAudio.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
+              <Music className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">No audio tracks found</h3>
+              <p className="text-slate-500">Upload unified videos to add audio tracks in multiple languages.</p>
+            </div>
+          ) : (
+            <>
+              {/* Audio Stats */}
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-purple-50 rounded-lg">
+                      <FileAudio className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">{lessonsWithAudio.length}</p>
+                      <p className="text-xs text-slate-500">Lessons</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-amber-50 rounded-lg">
+                      <Disc3 className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">
+                        {lessonsWithAudio.reduce((acc, l) => acc + l.audioTracks.length, 0)}
+                      </p>
+                      <p className="text-xs text-slate-500">Tracks</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-indigo-50 rounded-lg">
+                      <Languages className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">
+                        {[...new Set(lessonsWithAudio.flatMap(l => l.audioTracks.map((t: any) => t.language)))].length}
+                      </p>
+                      <p className="text-xs text-slate-500">Languages</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Audio List */}
+              {lessonsWithAudio.map((lesson) => (
+                <div
+                  key={lesson.id}
+                  className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">{lesson.title}</h3>
+                      <p className="text-sm text-slate-500">
+                        {lesson.courseTitle} • Lesson {lesson.orderIndex}
+                      </p>
+                    </div>
+                    <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-lg">
+                      {lesson.audioTracks.length} tracks
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {lesson.audioTracks.map((track: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg"
+                      >
+                        <div className="p-2 bg-white rounded-lg shadow-sm">
+                          <Music className="w-4 h-4 text-purple-600" />
+                        </div>
+                        <span className="flex-1 text-sm font-medium text-slate-700">
+                          {track.language === 'en' ? 'English' : track.language === 'hi' ? 'Hindi' : track.language === 'mr' ? 'Marathi' : track.language}
+                        </span>
+                        <button
+                          onClick={() => window.open(track.audioUrl, '_blank')}
+                          className="p-1.5 text-slate-400 hover:text-purple-600 rounded-lg"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {/* ============================================ */}
       {/* MODALS - Upload, External, Link, Delete */}
       {/* ============================================ */}
       
       {/* Upload Modal */}
       {activeModal === "upload" && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Upload Video</h3>
@@ -1096,7 +1378,7 @@ export default function OptimizedAdminVideoManagement() {
 
       {/* External Video Modal */}
       {activeModal === "external" && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-lg">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Add External Video</h3>
@@ -1217,7 +1499,7 @@ export default function OptimizedAdminVideoManagement() {
 
       {/* Link Video Modal */}
       {activeModal === "link" && selectedVideo && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-lg">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Link Video to Lesson</h3>
@@ -1319,7 +1601,7 @@ export default function OptimizedAdminVideoManagement() {
 
       {/* Delete Video Modal */}
       {activeModal === "delete" && selectedVideo && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-md">
             <div className="p-6">
               <div className="flex items-center justify-center mb-4">
@@ -1358,6 +1640,179 @@ export default function OptimizedAdminVideoManagement() {
               >
                 <Trash2 className="w-4 h-4" />
                 Delete Video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unified Video Upload Modal */}
+      {activeModal === "unified" && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Unified Video Upload</h3>
+              <button 
+                onClick={() => { setActiveModal(null); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600">
+                Upload a video with multiple audio tracks for different languages.
+              </p>
+
+              {/* Video File */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Video File *
+                </label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setUnifiedVideoFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+              </div>
+
+              {/* Audio Tracks */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    English Audio
+                  </label>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setUnifiedAudioEnglish(e.target.files?.[0] || null)}
+                    className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Hindi Audio
+                  </label>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setUnifiedAudioHindi(e.target.files?.[0] || null)}
+                    className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-orange-50 file:text-orange-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Marathi Audio
+                  </label>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setUnifiedAudioMarathi(e.target.files?.[0] || null)}
+                    className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-emerald-50 file:text-emerald-700"
+                  />
+                </div>
+              </div>
+
+              {/* Course Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Course *
+                </label>
+                <select
+                  value={unifiedCourse}
+                  onChange={(e) => {
+                    setUnifiedCourse(e.target.value === "" ? "" : Number(e.target.value));
+                    setUnifiedLesson("");
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="">Select a course</option>
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Lesson Selection */}
+              {unifiedCourse && lessons.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Lesson *
+                  </label>
+                  <select
+                    value={unifiedLesson}
+                    onChange={(e) => setUnifiedLesson(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select a lesson</option>
+                    {lessons.map((lesson) => (
+                      <option key={lesson.id} value={lesson.id}>
+                        Lesson {lesson.orderIndex}: {lesson.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {unifiedUploading && (
+                <div className="bg-purple-50 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 animate-spin text-purple-600" />
+                    <span className="text-purple-700">Uploading unified video...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => { setActiveModal(null); }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!unifiedVideoFile || !unifiedCourse || !unifiedLesson) {
+                    alert("Please fill all required fields");
+                    return;
+                  }
+                  setUnifiedUploading(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append("video", unifiedVideoFile);
+                    if (unifiedAudioEnglish) formData.append("audioEnglish", unifiedAudioEnglish);
+                    if (unifiedAudioHindi) formData.append("audioHindi", unifiedAudioHindi);
+                    if (unifiedAudioMarathi) formData.append("audioMarathi", unifiedAudioMarathi);
+
+                    const response = await fetch(`/api/courses/${unifiedCourse}/lessons/${unifiedLesson}/upload-unified-video`, {
+                      method: "POST",
+                      headers: {
+                        "Authorization": `Bearer ${localStorage.getItem("token")}`,
+                      },
+                      body: formData,
+                    });
+
+                    if (!response.ok) throw new Error("Upload failed");
+
+                    alert("Unified video uploaded successfully!");
+                    setActiveModal(null);
+                    loadVideos(currentPage);
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : "Upload failed");
+                  } finally {
+                    setUnifiedUploading(false);
+                  }
+                }}
+                disabled={!unifiedVideoFile || !unifiedCourse || !unifiedLesson || unifiedUploading}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <Languages className="w-4 h-4" />
+                Upload Unified Video
               </button>
             </div>
           </div>
