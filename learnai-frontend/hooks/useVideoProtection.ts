@@ -62,66 +62,76 @@ export const useVideoProtection = () => {
     `;
     document.head.appendChild(style);
 
-    // Prevent right-click context menu
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      return false;
     };
 
-    // Prevent drag and drop
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      const isBlockedKey =
+        e.key === "F12" ||
+        e.key === "PrintScreen" ||
+        key === "f12" ||
+        ((e.ctrlKey || e.metaKey) && key === "s") ||
+        ((e.ctrlKey || e.metaKey) && key === "p") ||
+        ((e.ctrlKey || e.metaKey) && key === "c") ||
+        ((e.ctrlKey || e.metaKey) && key === "u") ||
+        ((e.ctrlKey || e.metaKey) && key === "a") ||
+        ((e.ctrlKey || e.metaKey) &&
+          e.shiftKey &&
+          (key === "i" || key === "c" || key === "j" || key === "s"));
+
+      if (isBlockedKey) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      // Best-effort clipboard clear when print-screen is pressed
+      if (e.key === "PrintScreen" && navigator.clipboard?.writeText) {
+        hideSensitiveContent();
+        window.setTimeout(showSensitiveContent, 500);
+        navigator.clipboard.writeText("").catch(() => {
+          // Ignore clipboard failures on unsupported/blocked contexts
+        });
+      }
+    };
+
     const handleDragStart = (e: DragEvent) => {
       e.preventDefault();
-      return false;
     };
 
-    // Prevent copy to clipboard
     const handleCopy = (e: ClipboardEvent) => {
       e.preventDefault();
-      return false;
     };
 
-    // Prevent cut to clipboard
-    const handleCut = (e: ClipboardEvent) => {
-      e.preventDefault();
-      return false;
+    const hideSensitiveContent = () => {
+      document.body.classList.add("video-protection-hidden");
     };
 
-    // Prevent paste from clipboard
-    const handlePaste = (e: ClipboardEvent) => {
-      e.preventDefault();
-      return false;
+    const showSensitiveContent = () => {
+      document.body.classList.remove("video-protection-hidden");
     };
 
-    // Block developer tools only for browser-level inspection
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only block developer tools access (F12, Ctrl+Shift+I, Ctrl+Shift+J)
-      // NOT screenshot shortcuts (they don't reach the browser)
-      if (e.key === "F12") {
-        e.preventDefault();
-        return false;
-      }
-      if (e.ctrlKey && e.shiftKey && e.key === "I") {
-        e.preventDefault();
-        return false;
-      }
-      if (e.ctrlKey && e.shiftKey && e.key === "J") {
-        e.preventDefault();
-        return false;
-      }
-      // Block Ctrl+S (Save page)
-      if (e.ctrlKey && e.key === "s") {
-        e.preventDefault();
-        return false;
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        hideSensitiveContent();
+      } else {
+        showSensitiveContent();
       }
     };
 
-    // Add event listeners
     document.addEventListener("contextmenu", handleContextMenu, true);
     document.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("dragstart", handleDragStart, true);
     document.addEventListener("copy", handleCopy, true);
-    document.addEventListener("cut", handleCut, true);
-    document.addEventListener("paste", handlePaste, true);
+    document.addEventListener("cut", handleCopy, true);
+    document.addEventListener("paste", handleCopy, true);
+    document.addEventListener("visibilitychange", handleVisibilityChange, true);
+    window.addEventListener("blur", hideSensitiveContent);
+    window.addEventListener("focus", showSensitiveContent);
+
+    document.body.style.userSelect = "none";
+    document.body.style.webkitUserSelect = "none";
 
     // Block print dialog (application-level only)
     window.print = () => {
@@ -129,14 +139,23 @@ export const useVideoProtection = () => {
       return false;
     };
 
-    // Cleanup
     return () => {
       document.removeEventListener("contextmenu", handleContextMenu, true);
       document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("dragstart", handleDragStart, true);
       document.removeEventListener("copy", handleCopy, true);
-      document.removeEventListener("cut", handleCut, true);
-      document.removeEventListener("paste", handlePaste, true);
+      document.removeEventListener("cut", handleCopy, true);
+      document.removeEventListener("paste", handleCopy, true);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
+        true,
+      );
+      window.removeEventListener("blur", hideSensitiveContent);
+      window.removeEventListener("focus", showSensitiveContent);
+      document.body.classList.remove("video-protection-hidden");
+      document.body.style.userSelect = "";
+      document.body.style.webkitUserSelect = "";
       if (document.head.contains(style)) {
         document.head.removeChild(style);
       }

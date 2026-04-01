@@ -4,3 +4,7 @@
   --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-playfair: Georgia, "Times New Roman", serif;
 }
+
+body.video-protection-hidden {
+  filter: blur(18px) brightness(0.2);
+}

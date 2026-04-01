@@ -1,15 +1,7 @@
 /* eslint-disable react/no-unknown-property */
 "use client";
 
-import {
-  forwardRef,
-  Suspense,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
+import { useState, useEffect, Suspense, useRef } from "react";
 import {
   ArrowLeft,
   Play,
@@ -44,10 +36,6 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "@/hooks/useAuth";
 import { useVideoProtection } from "@/hooks/useVideoProtection";
-import {
-  addWatermarkToVideo,
-  getWatermarkConfig,
-} from "@/utils/videoWatermark";
 import { api } from "@/lib/api";
 
 interface LessonItem {
@@ -97,122 +85,20 @@ interface CurrentLesson {
   };
   objectives: string[];
   orderIndex: number;
-  completed?: boolean;
 }
-
-interface LessonVideoPlayerState {
-  isPlaying: boolean;
-  isFullscreen: boolean;
-  isLoading: boolean;
-  canControl: boolean;
-  error: string | null;
-}
-
-interface LessonVideoPlayerHandle {
-  togglePlay: () => void;
-  toggleFullscreen: () => void;
-}
-
-const DEFAULT_LESSON_VIDEO_PLAYER_STATE: LessonVideoPlayerState = {
-  isPlaying: false,
-  isFullscreen: false,
-  isLoading: false,
-  canControl: false,
-  error: null,
-};
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api";
-const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
-
-type FullscreenDocument = Document & {
-  webkitExitFullscreen?: () => Promise<void> | void;
-  webkitFullscreenElement?: Element | null;
-  msExitFullscreen?: () => Promise<void> | void;
-  msFullscreenElement?: Element | null;
-};
-
-type FullscreenElement = HTMLElement & {
-  webkitRequestFullscreen?: () => Promise<void> | void;
-  msRequestFullscreen?: () => Promise<void> | void;
-};
-
-type WebkitVideoElement = HTMLVideoElement & {
-  webkitDisplayingFullscreen?: boolean;
-  webkitEnterFullscreen?: () => void;
-  webkitExitFullscreen?: () => void;
-};
-
-const getActiveFullscreenElement = (
-  doc: Document = document,
-): Element | null => {
-  const fullscreenDocument = doc as FullscreenDocument;
-  return (
-    doc.fullscreenElement ??
-    fullscreenDocument.webkitFullscreenElement ??
-    fullscreenDocument.msFullscreenElement ??
-    null
-  );
-};
-
-const isVideoUsingNativeFullscreen = (
-  video: HTMLVideoElement | null,
-): boolean => {
-  const webkitVideo = video as WebkitVideoElement | null;
-  return Boolean(webkitVideo?.webkitDisplayingFullscreen);
-};
-
-
-
-
-const getMediaIdFromUrl = (url: string): number | null => {
-  const match = url.match(/\/api\/media\/(\d+)/);
-  if (!match) {
-    return null;
-  }
-
-  const mediaId = Number.parseInt(match[1], 10);
-  return Number.isNaN(mediaId) ? null : mediaId;
-};
-
-const isBackendHostedVideo = (url: string): boolean =>
-  url.startsWith("/uploads/") ||
-  url.includes("/uploads/") ||
-  url.startsWith("/api/media/") ||
-  url.includes("/api/media/");
 
 // Enhanced video player component for direct file playback from uploads folder
-// Now supports unified video with multiple audio tracks
-interface AudioTrack {
-  language: string;
-  label: string;
-  audioUrl: string;
-}
-
-const DatabaseVideoPlayer = forwardRef<
-  LessonVideoPlayerHandle,
-  {
-    videoUrl: string;
-    title: string;
-    className?: string;
-    onStateChange?: (state: LessonVideoPlayerState) => void;
-    audioTracks?: AudioTrack[];
-    preferredAudioTrack?: number;
-    onAudioTrackChange?: (trackIndex: number) => void;
-  }
->(function DatabaseVideoPlayer(
-  { videoUrl, title, className = "", onStateChange, audioTracks = [], preferredAudioTrack = 0, onAudioTrackChange },
-  ref,
-) {
+const DatabaseVideoPlayer = ({
+  videoUrl,
+  title,
+  className = "",
+}: {
+  videoUrl: string;
+  title: string;
+  className?: string;
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const maxTimeReachedRef = useRef(0);
-  const cleanupWatermarkRef = useRef<(() => void) | null>(null);
-  const isFullscreenRef = useRef(false);
-  const isAudioSyncRef = useRef(false);
-  const audioStartTimeRef = useRef(0);
-
+  const maxTimeReachedRef = useRef(0); // Use ref instead of state to avoid re-renders
   const [isLoading, setIsLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -223,320 +109,6 @@ const DatabaseVideoPlayer = forwardRef<
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(null);
-  const [currentAudioTrack, setCurrentAudioTrack] = useState(0);
-  const [showAudioSelector, setShowAudioSelector] = useState(false);
-
-  // Video watch time limit state
-  const [isLimitExceeded, setIsLimitExceeded] = useState(false);
-  const [remainingTime, setRemainingTime] = useState<number>(0);
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [isCheckingLimit, setIsCheckingLimit] = useState(false);
-
-  // Safely check if audio tracks exist and have valid entries
-  // Handle case where audioTracks might be a string (JSON) instead of array
-  const parsedAudioTracks = Array.isArray(audioTracks) 
-    ? audioTracks 
-    : (typeof audioTracks === 'string' && audioTracks) 
-      ? JSON.parse(audioTracks) 
-      : [];
-  
-  const hasAudioTracks = parsedAudioTracks.length > 0;
-  
-  // Update current audio track when preferred changes
-  useEffect(() => {
-    if (preferredAudioTrack !== undefined && preferredAudioTrack !== null) {
-      setCurrentAudioTrack(preferredAudioTrack);
-    }
-  }, [preferredAudioTrack]);
-
-  // Function to check usage limit
-  const checkUsageLimit = async () => {
-    try {
-      setIsCheckingLimit(true);
-      const usageData = await api.usage.getStatus();
-      setRemainingTime(usageData.remainingSeconds);
-      setIsLimitExceeded(usageData.isLocked);
-      return !usageData.isLocked;
-    } catch (error) {
-      console.error("Failed to check usage limit:", error);
-      return true; // Allow playback if API fails
-    } finally {
-      setIsCheckingLimit(false);
-    }
-  };
-
-  // Function to send heartbeat
-  const sendHeartbeat = async () => {
-    try {
-      const result = await api.usage.sendHeartbeat();
-      setRemainingTime(result.remainingSeconds);
-      if (result.isLocked) {
-        setIsLimitExceeded(true);
-        // Pause video when limit is reached
-        const video = videoRef.current;
-        if (video) {
-          video.pause();
-        }
-      }
-    } catch (error) {
-      console.error("Failed to send heartbeat:", error);
-    }
-  };
-
-  // Start heartbeat when video plays
-  const startHeartbeat = () => {
-    if (heartbeatIntervalRef.current) return;
-    
-    // Send initial heartbeat
-    sendHeartbeat();
-    
-    // Send heartbeat every 30 seconds
-    heartbeatIntervalRef.current = setInterval(() => {
-      sendHeartbeat();
-    }, 30000);
-  };
-
-  // Stop heartbeat when video pauses
-  const stopHeartbeat = () => {
-    if (heartbeatIntervalRef.current) {
-      clearInterval(heartbeatIntervalRef.current);
-      heartbeatIntervalRef.current = null;
-    }
-  };
-
-  const togglePlay = async () => {
-    const video = videoRef.current;
-    if (!video) {
-      console.error("❌ Video ref is null");
-      return;
-    }
-
-    console.log("🎬 Toggle play clicked. Currently playing:", isPlaying);
-
-    if (isPlaying) {
-      video.pause();
-      stopHeartbeat();
-      console.log("⏸️ Video paused");
-    } else {
-      // Check usage limit before playing
-      const canPlay = await checkUsageLimit();
-      
-      if (!canPlay) {
-        console.log("⛔ Daily video watch limit exceeded");
-        setError("You've reached your daily video watch limit of 2 hours. Come back tomorrow!");
-        return;
-      }
-      
-      video.play().catch((err) => {
-        console.error("❌ Play failed:", err);
-        setError("Failed to play video. Please try again.");
-      });
-      
-      // Start heartbeat tracking
-      startHeartbeat();
-      console.log("▶️ Video playing");
-    }
-  };
-
-  const toggleMute = () => {
-    const video = videoRef.current;
-    if (!video) {
-      console.error("❌ Video ref is null");
-      return;
-    }
-
-    console.log("🔊 Toggle mute clicked. Currently muted:", isMuted);
-
-    if (isMuted) {
-      video.muted = false;
-      video.volume = volume;
-      setIsMuted(false);
-      console.log("🔊 Video unmuted");
-    } else {
-      video.muted = true;
-      setIsMuted(true);
-      console.log("🔇 Video muted");
-    }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value);
-    console.log("🔊 Volume changed to:", newVolume);
-    setVolume(newVolume);
-    const video = videoRef.current;
-    if (!video) return;
-
-    video.volume = newVolume;
-    if (newVolume > 0 && isMuted) {
-      video.muted = false;
-      setIsMuted(false);
-    }
-  };
-
-  const toggleFullscreen = () => {
-    // Simple state-based fullscreen using CSS
-    // Avoids browser fullscreen API issues in Electron
-    const newState = !isFullscreen;
-
-    console.log("🖥️ Fullscreen toggled:", !isFullscreen);
-
-    setIsFullscreen(newState);
-    isFullscreenRef.current = newState;
-
-    if (newState) {
-      // Entering fullscreen
-      document.body.style.overflow = "hidden";
-      document.documentElement.style.overflow = "hidden";
-    } else {
-      // Exiting fullscreen
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
-    }
-  };
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      togglePlay,
-      toggleFullscreen,
-    }),
-    [isPlaying, isFullscreen],
-  );
-
-  useEffect(() => {
-    onStateChange?.({
-      isPlaying,
-      isFullscreen,
-      isLoading,
-      canControl: Boolean(resolvedVideoUrl) && !error,
-      error,
-    });
-  }, [
-    error,
-    isFullscreen,
-    isLoading,
-    isPlaying,
-    onStateChange,
-    resolvedVideoUrl,
-  ]);
-
-  // Fullscreen state is now managed purely through React state and CSS
-  // No need for browser fullscreen API event listeners
-
-  // Handle ESC key to exit fullscreen
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isFullscreen) {
-        console.log("ESC pressed - exiting fullscreen");
-        toggleFullscreen();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isFullscreen]);
-
-  // Handle body overflow when fullscreen changes
-  useEffect(() => {
-    if (isFullscreen) {
-      document.body.style.overflow = "hidden";
-      document.documentElement.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
-    }
-
-    return () => {
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
-    };
-  }, [isFullscreen]);
-
-  useEffect(() => {
-    return () => {
-      onStateChange?.(DEFAULT_LESSON_VIDEO_PLAYER_STATE);
-    };
-  }, [onStateChange]);
-
-  useEffect(() => {
-    let isActive = true;
-
-    const resolveVideoUrl = async () => {
-      setError(null);
-      setIsLoading(true);
-      setIsPlaying(false);
-      setProgress(0);
-      setCurrentTime(0);
-      setDuration(0);
-      maxTimeReachedRef.current = 0;
-
-      console.log("🎬 Resolving video URL:", videoUrl);
-      console.log("   Current API_ORIGIN:", API_ORIGIN);
-
-      if (!videoUrl || videoUrl === 'null' || videoUrl === 'undefined') {
-        setResolvedVideoUrl(null);
-        setIsLoading(false);
-        console.log("❌ No video URL provided or invalid URL");
-        return;
-      }
-
-      try {
-        const mediaId = getMediaIdFromUrl(videoUrl);
-
-        if (mediaId) {
-          console.log("📦 Media ID detected:", mediaId);
-          const signedMedia = await api.admin.getSignedUrl(mediaId);
-          if (isActive) {
-            console.log("✅ Signed URL obtained:", signedMedia.url);
-            setResolvedVideoUrl(signedMedia.url);
-            setIsLoading(false); // URL resolved, let video element handle loading
-          }
-          return;
-        }
-
-        if (videoUrl.startsWith("/")) {
-          const fullUrl = `${API_ORIGIN}${videoUrl}`;
-          console.log("🔗 Relative URL converted:", fullUrl);
-          if (isActive) {
-            setResolvedVideoUrl(fullUrl);
-            setIsLoading(false); // URL resolved, let video element handle loading
-          }
-          return;
-        }
-
-        console.log("🔗 Using direct URL:", videoUrl);
-        if (isActive) {
-          // Validate URL format
-          if (videoUrl.startsWith('http') || videoUrl.startsWith('/')) {
-            console.log("✅ Valid URL format, setting resolvedVideoUrl");
-            setResolvedVideoUrl(videoUrl);
-            setIsLoading(false);
-          } else {
-            console.error("❌ Invalid URL format:", videoUrl);
-            setError("Invalid video URL format");
-            setIsLoading(false);
-          }
-        }
-      } catch (resolveError) {
-        console.error("❌ Failed to resolve video URL:", resolveError);
-        if (isActive) {
-          setResolvedVideoUrl(null);
-          setError("Failed to prepare video. Please try again.");
-          setIsLoading(false);
-        }
-      }
-    };
-
-    resolveVideoUrl();
-
-    return () => {
-      isActive = false;
-    };
-  }, [videoUrl]);
 
   // Video element event handlers
   useEffect(() => {
@@ -554,6 +126,8 @@ const DatabaseVideoPlayer = forwardRef<
       console.log("✅ Video loaded successfully");
       setIsLoading(false);
       setDuration(video.duration);
+      thresholdNotifiedRef.current = false;
+      onWatchThresholdMet?.(false);
     };
 
     const handleTimeUpdate = () => {
@@ -562,6 +136,17 @@ const DatabaseVideoPlayer = forwardRef<
       // Track the furthest point the student has watched using ref
       if (video.currentTime > maxTimeReachedRef.current) {
         maxTimeReachedRef.current = video.currentTime;
+      }
+
+      // Unlock completion only near the end of video (last ~40s).
+      const thresholdSeconds = Math.max(video.duration - 40, video.duration * 0.85);
+      if (
+        video.duration > 0 &&
+        video.currentTime >= thresholdSeconds &&
+        !thresholdNotifiedRef.current
+      ) {
+        thresholdNotifiedRef.current = true;
+        onWatchThresholdMet?.(true);
       }
     };
 
@@ -720,18 +305,28 @@ const DatabaseVideoPlayer = forwardRef<
     };
   }, []);
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const togglePlay = () => {
     const video = videoRef.current;
-    const progressBar = e.currentTarget;
-    if (!video || !progressBar) return;
+    if (!video) return;
 
-    const rect = progressBar.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const newTime = (clickX / rect.width) * duration;
+    if (isPlaying) {
+      video.pause();
+    } else {
+      video.play();
+    }
+  };
 
-    // Only allow seeking to points already watched
-    if (newTime <= maxTimeReachedRef.current) {
-      video.currentTime = newTime;
+  const toggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isMuted) {
+      video.muted = false;
+      video.volume = volume;
+      setIsMuted(false);
+    } else {
+      video.muted = true;
+      setIsMuted(true);
     }
   };
 
@@ -766,77 +361,42 @@ const DatabaseVideoPlayer = forwardRef<
     }
   };
 
-  // Sync audio with video
-  useEffect(() => {
+  const toggleFullscreen = () => {
     const video = videoRef.current;
-    const audio = audioRef.current;
-    
-    if (!video || !audio || !hasAudioTracks) return;
+    if (!video) return;
 
-    const syncAudio = () => {
-      if (audio.paused && !video.paused && video.currentTime >= audioStartTimeRef.current) {
-        audio.currentTime = video.currentTime;
-        audio.play().catch(console.error);
+    if (!isFullscreen) {
+      if (video.requestFullscreen) {
+        video.requestFullscreen();
       }
-      
-      // If video is paused, pause audio
-      if (video.paused && !audio.paused) {
-        audio.pause();
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
       }
-      
-      // If audio is ahead of video, sync it back
-      if (!audio.paused && audio.currentTime > video.currentTime + 0.5) {
-        audio.currentTime = video.currentTime;
-      }
-    };
+    }
+    setIsFullscreen(!isFullscreen);
+  };
 
-    const handleVideoPlay = () => {
-      if (hasAudioTracks && parsedAudioTracks[currentAudioTrack]) {
-        audio.currentTime = video.currentTime;
-        audio.play().catch(console.error);
-      }
-    };
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    const progressBar = e.currentTarget;
+    if (!video || !progressBar) return;
 
-    const handleVideoPause = () => {
-      if (hasAudioTracks) {
-        audio.pause();
-      }
-    };
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const newTime = (clickX / rect.width) * duration;
 
-    const handleVideoSeeked = () => {
-      if (hasAudioTracks) {
-        audioStartTimeRef.current = video.currentTime;
-        audio.currentTime = video.currentTime;
-      }
-    };
+    // Only allow seeking to points already watched
+    if (newTime <= maxTimeReachedRef.current) {
+      video.currentTime = newTime;
+    }
+  };
 
-    const handleVideoEnded = () => {
-      if (hasAudioTracks) {
-        audio.pause();
-      }
-    };
-
-    const handleAudioEnded = () => {
-      video.pause();
-    };
-
-    const intervalId = setInterval(syncAudio, 100);
-    
-    video.addEventListener("play", handleVideoPlay);
-    video.addEventListener("pause", handleVideoPause);
-    video.addEventListener("seeked", handleVideoSeeked);
-    video.addEventListener("ended", handleVideoEnded);
-    audio.addEventListener("ended", handleAudioEnded);
-
-    return () => {
-      clearInterval(intervalId);
-      video.removeEventListener("play", handleVideoPlay);
-      video.removeEventListener("pause", handleVideoPause);
-      video.removeEventListener("seeked", handleVideoSeeked);
-      video.removeEventListener("ended", handleVideoEnded);
-      audio.removeEventListener("ended", handleAudioEnded);
-    };
-  }, [hasAudioTracks, parsedAudioTracks, currentAudioTrack]);
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
 
   if (error) {
     return (
@@ -853,10 +413,7 @@ const DatabaseVideoPlayer = forwardRef<
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`bg-black group relative ${isFullscreen ? 'w-screen h-screen fixed inset-0 z-[9999]' : ''} ${className}`}
-    >
+    <div className={`relative bg-black group ${className}`}>
       {/* Video Element */}
       <video
         ref={videoRef}
@@ -955,14 +512,11 @@ const DatabaseVideoPlayer = forwardRef<
       )}
 
       {/* Video Controls */}
-      <div className="absolute inset-0 pointer-events-none hidden">
-        {/* Play/Pause Overlay - Only visible on hover when paused */}
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {/* Play/Pause Overlay */}
         <div
-          className="absolute inset-0 flex items-center justify-center cursor-pointer pointer-events-auto opacity-0 hover:opacity-100 transition-opacity duration-200"
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePlay();
-          }}
+          className="absolute inset-0 flex items-center justify-center cursor-pointer"
+          onClick={togglePlay}
         >
           {!isPlaying && !isLoading && (
             <div className="bg-black bg-opacity-50 rounded-full p-4">
@@ -971,104 +525,99 @@ const DatabaseVideoPlayer = forwardRef<
           )}
         </div>
 
-        {/* Bottom Controls - Always visible */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-4 pointer-events-auto z-10">
+        {/* Bottom Controls */}
+        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-75 p-4">
           {/* Progress Bar - Locked for forward seeking */}
           <div
-            className="w-full h-1 bg-gray-600 rounded-full mb-4 group relative cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleProgressClick(e);
-            }}
+            className="w-full h-1 bg-gray-600 rounded-full mb-4 group relative"
+            onClick={handleProgressClick}
           >
             <div
               className="h-full bg-blue-500 rounded-full pointer-events-none"
               style={{ width: `${progress}%` }}
             />
             {/* Lock icon indicator on progress bar */}
-            <div className="absolute top-1/2 -translate-y-1/2 right-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <div className="absolute top-1/2 -translate-y-1/2 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <Lock className="w-3 h-3 text-yellow-400" />
             </div>
           </div>
 
-          {/* Control Buttons */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              {/* Play/Pause Button */}
+            <div className="flex items-center gap-3">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePlay();
-                }}
-                className="text-white hover:text-blue-400 transition-colors outline-none focus:outline-none z-50"
+                onClick={togglePlay}
+                className="text-white hover:text-blue-400 transition-colors"
                 title={isPlaying ? "Pause" : "Play"}
                 type="button"
               >
                 {isPlaying ? (
-                  <Pause className="w-6 h-6" />
+                  <Pause className="w-5 h-5" />
                 ) : (
-                  <Play className="w-6 h-6" fill="white" />
+                  <Play className="w-5 h-5" fill="white" />
                 )}
               </button>
-
-              {/* Mute Button */}
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleMute();
-                }}
-                className="text-white hover:text-blue-400 transition-colors outline-none focus:outline-none z-50"
+                onClick={toggleMute}
+                className="text-white hover:text-blue-400 transition-colors"
                 title={isMuted ? "Unmute" : "Mute"}
                 type="button"
               >
                 {isMuted ? (
-                  <VolumeX className="w-5 h-5" />
+                  <VolumeX className="w-4 h-4" />
                 ) : (
-                  <Volume2 className="w-5 h-5" />
+                  <Volume2 className="w-4 h-4" />
                 )}
               </button>
-
-              {/* Volume Slider */}
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.1"
                 value={isMuted ? 0 : volume}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  handleVolumeChange(e);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className="w-20 h-1 bg-gray-600 rounded-full cursor-pointer accent-blue-500 outline-none focus:outline-none z-50"
+                onChange={handleVolumeChange}
+                className="w-20 h-1 bg-gray-600 rounded-full cursor-pointer accent-blue-500"
                 title="Volume"
               />
 
               {/* Time Display */}
-              <span className="text-white text-sm whitespace-nowrap pointer-events-none">
+              <span className="text-white text-sm whitespace-nowrap">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             </div>
 
-            {/* Fullscreen Button */}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFullscreen();
-              }}
-              className="text-white hover:text-blue-400 transition-colors outline-none focus:outline-none z-50"
+              onClick={toggleFullscreen}
+              className="text-white hover:text-blue-400 transition-colors"
               title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
               type="button"
             >
               {isFullscreen ? (
-                <Minimize className="w-5 h-5" />
+                <Minimize className="w-4 h-4" />
               ) : (
-                <Maximize className="w-5 h-5" />
+                <Maximize className="w-4 h-4" />
               )}
             </button>
           </div>
         </div>
       </div>
+      {watermarkText && (
+        <div className="pointer-events-none absolute inset-0 z-20 select-none">
+          {[16, 34, 52, 70].map((top, idx) => (
+            <span
+              key={top}
+              className="absolute text-[10px] md:text-[11px] text-white/38 font-medium tracking-[0.08em] uppercase"
+              style={{
+                top: `${top}%`,
+                left: `${idx % 2 === 0 ? 8 : 55}%`,
+                transform: "translate(-2%, -50%) rotate(-20deg)",
+                textShadow: "0 1px 1px rgba(0,0,0,0.45)",
+              }}
+            >
+              {watermarkText}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
@@ -1236,19 +785,9 @@ interface AudioTrack {
 const SmartVideoPlayer = ({
   videoUrl,
   title,
-  playerRef,
-  onDatabasePlayerStateChange,
-  audioTracks,
-  preferredAudioTrack,
-  onAudioTrackChange,
 }: {
   videoUrl: string;
   title: string;
-  playerRef?: RefObject<LessonVideoPlayerHandle | null>;
-  onDatabasePlayerStateChange?: (state: LessonVideoPlayerState) => void;
-  audioTracks?: AudioTrack[];
-  preferredAudioTrack?: number;
-  onAudioTrackChange?: (trackIndex: number) => void;
 }) => {
   // Detect video type
   const isDataBaseVideo = isBackendHostedVideo(videoUrl);
@@ -1263,6 +802,8 @@ const SmartVideoPlayer = ({
         ref={playerRef}
         videoUrl={videoUrl}
         title={title}
+        onWatchThresholdMet={onWatchThresholdMet}
+        watermarkText={watermarkText}
         className={playerClassName}
         onStateChange={onDatabasePlayerStateChange}
         audioTracks={audioTracks}
@@ -1301,7 +842,7 @@ const SmartVideoPlayer = ({
 function LearningPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
 
   // Enable video protection on this page
   useVideoProtection();
@@ -1327,51 +868,67 @@ function LearningPageContent() {
     day1: true,
   });
   const [noCourseAvailable, setNoCourseAvailable] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<"english" | "hindi" | "marathi">("english");
-  const [isLoadingLanguage, setIsLoadingLanguage] = useState(false);
-  const lessonVideoPlayerRef = useRef<LessonVideoPlayerHandle | null>(null);
-  const [lessonVideoPlayerState, setLessonVideoPlayerState] =
-    useState<LessonVideoPlayerState>(DEFAULT_LESSON_VIDEO_PLAYER_STATE);
-  const isControllableCurrentVideo = Boolean(
-    currentLesson?.videoUrl && isBackendHostedVideo(currentLesson.videoUrl),
-  );
-
-  useEffect(() => {
-    if (!isControllableCurrentVideo) {
-      setLessonVideoPlayerState(DEFAULT_LESSON_VIDEO_PLAYER_STATE);
-    }
-  }, [currentLesson?.id, currentLesson?.videoUrl, isControllableCurrentVideo]);
-
-  // Handle page-level fullscreen and ESC key
-  useEffect(() => {
-    if (isPageFullscreen) {
-      document.body.style.overflow = "hidden";
-      document.documentElement.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
-    }
-  }, [isPageFullscreen]);
-
-  useEffect(() => {
-    const handleEscKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isPageFullscreen) {
-        console.log("ESC pressed - exiting page fullscreen");
-        setIsPageFullscreen(false);
-      }
-    };
-
-    document.addEventListener("keydown", handleEscKey);
-    return () => {
-      document.removeEventListener("keydown", handleEscKey);
-    };
-  }, [isPageFullscreen]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push("/");
     }
   }, [isLoading, isAuthenticated, router]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setWatermarkTime(new Date().toLocaleString());
+    }, 30000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const isTrackableVideo = (url?: string | null): boolean =>
+    !!url &&
+    (url.startsWith("/uploads/") ||
+      url.includes("/uploads/") ||
+      url.startsWith("/api/media/") ||
+      url.includes("/api/media/"));
+
+  useEffect(() => {
+    // For self-hosted videos, require near-end watch before completion.
+    setCanMarkComplete(!isTrackableVideo(currentLesson?.videoUrl));
+  }, [currentLesson?.id, currentLesson?.videoUrl]);
+
+  const isQuizLesson = currentLesson?.type?.toLowerCase() === "quiz";
+  const quizQuestions = useMemo(
+    () => parseQuizQuestions(currentLesson?.content || null),
+    [currentLesson?.id, currentLesson?.content],
+  );
+
+  useEffect(() => {
+    setSelectedAnswers({});
+    setQuizSubmitted(false);
+    setQuizScore(null);
+  }, [currentLesson?.id]);
+
+  const handleSelectQuizOption = (questionIndex: number, optionIndex: number) => {
+    if (quizSubmitted) return;
+    setSelectedAnswers((prev) => ({ ...prev, [questionIndex]: optionIndex }));
+  };
+
+  const handleSubmitQuiz = () => {
+    if (!quizQuestions.length) return;
+
+    const answeredCount = Object.keys(selectedAnswers).length;
+    if (answeredCount < quizQuestions.length) return;
+
+    let correct = 0;
+    quizQuestions.forEach((q, idx) => {
+      if (selectedAnswers[idx] === q.answerIndex) {
+        correct += 1;
+      }
+    });
+
+    const total = quizQuestions.length;
+    const percentage = Math.round((correct / total) * 100);
+    setQuizScore({ correct, total, percentage });
+    setQuizSubmitted(true);
+  };
 
   // Get courseId from URL or default to first enrolled course
   useEffect(() => {
@@ -1402,6 +959,9 @@ function LearningPageContent() {
             }
           }
         } catch (error) {
+          if (error instanceof ApiResponseError && error.status === 401) {
+            return;
+          }
           console.error("Failed to validate course access:", error);
         }
       } else {
@@ -1421,6 +981,9 @@ function LearningPageContent() {
             setCourseId(null);
           }
         } catch (error) {
+          if (error instanceof ApiResponseError && error.status === 401) {
+            return;
+          }
           console.error("Failed to fetch enrolled courses:", error);
         }
       }
@@ -1502,6 +1065,9 @@ function LearningPageContent() {
         setProgress(data.progress);
         
       } catch (error) {
+        if (error instanceof ApiResponseError && error.status === 401) {
+          return;
+        }
         console.error("Failed to fetch curriculum:", error);
       } finally {
         setIsLoadingCurriculum(false);
@@ -1660,6 +1226,7 @@ function LearningPageContent() {
 
   const handleLessonClick = async (lesson: LessonItem) => {
     if (!courseId) return;
+    setActiveDemoQuizSectionId(null);
 
     // Find which section/day this lesson belongs to
     const sectionIndex = curriculum.findIndex((section) =>
@@ -1676,35 +1243,56 @@ function LearningPageContent() {
       await api.learning.setCurrentLesson(courseId, lesson.orderIndex);
       setCurrentLesson(lesson);
     } catch (error) {
+      if (error instanceof ApiResponseError && error.status === 401) {
+        return;
+      }
       console.error("Failed to set current lesson:", error);
     }
   };
 
+  const handleOpenDemoQuiz = (section: CurriculumSection) => {
+    setActiveDemoQuizSectionId(section.id);
+    setCurrentLesson({
+      id: -Math.max(1, parseInt(section.id.replace(/\D/g, ""), 10) || 1),
+      title: `${normalizeDayLabel(section.day)} Quiz (Demo)`,
+      type: "quiz",
+      duration: "8 min",
+      description:
+        "This is a demo quiz preview because no real quiz lesson is configured for this day yet.",
+      content: JSON.stringify({
+        questions: [
+          {
+            id: 1,
+            question: "What makes a good AI prompt?",
+            options: [
+              "Clear objective and context",
+              "Very short random text",
+              "No constraints",
+              "Only emojis",
+            ],
+            answerIndex: 0,
+          },
+          {
+            id: 2,
+            question: "Why add output format instructions?",
+            options: [
+              "To reduce quality",
+              "To guide response structure",
+              "To disable AI reasoning",
+              "No reason",
+            ],
+            answerIndex: 1,
+          },
+        ],
+      }),
+      videoUrl: null,
+      objectives: ["Demo quiz flow validation"],
+      orderIndex: 0,
+    });
+  };
+
   const handleMarkComplete = async () => {
     if (!currentLesson || !courseId) return;
-
-    const allLessons = curriculum.flatMap((section) => section.items);
-    const currentIndex = allLessons.findIndex((l) => l.id === currentLesson.id);
-    const isLastLesson = currentIndex === allLessons.length - 1;
-    
-    // If already completed and not last lesson, just navigate to next
-    if (currentLesson.completed && !isLastLesson) {
-      // Move to next lesson without calling complete API
-      if (currentIndex >= 0 && currentIndex < allLessons.length - 1) {
-        const nextLesson = allLessons[currentIndex + 1];
-        const nextLessonDayIndex = curriculum.findIndex((section) =>
-          section.items.some((item) => item.id === nextLesson.id),
-        );
-        
-        if (nextLessonDayIndex > 0 && !isDayCompleted(nextLessonDayIndex - 1)) {
-          return;
-        }
-        
-        setCurrentLesson(nextLesson);
-        await api.learning.setCurrentLesson(courseId, nextLesson.orderIndex);
-      }
-      return;
-    }
 
     try {
       await api.learning.completeLesson(currentLesson.id);
@@ -1754,6 +1342,9 @@ function LearningPageContent() {
         await api.learning.setCurrentLesson(courseId, nextLesson.orderIndex);
       }
     } catch (error) {
+      if (error instanceof ApiResponseError && error.status === 401) {
+        return;
+      }
       console.error("Failed to mark lesson complete:", error);
     }
   };
@@ -1767,9 +1358,67 @@ function LearningPageContent() {
     if (currentIndex > 0) {
       const prevLesson = allLessons[currentIndex - 1];
       setCurrentLesson(prevLesson);
-      await api.learning.setCurrentLesson(courseId, prevLesson.orderIndex);
+      try {
+        await api.learning.setCurrentLesson(courseId, prevLesson.orderIndex);
+      } catch (error) {
+        if (error instanceof ApiResponseError && error.status === 401) {
+          return;
+        }
+        console.error("Failed to go to previous lesson:", error);
+      }
     }
   };
+
+  const normalizeDayLabel = (dayLabel: string): string => {
+    const match = dayLabel.match(/day\s*(\d+)/i);
+    if (match?.[1]) return `Day ${match[1]}`;
+    return dayLabel.trim();
+  };
+
+  const getToolNameFromTitle = (title: string): string => {
+    return title.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  };
+
+  const getSectionDayLabel = (section: CurriculumSection): string =>
+    normalizeDayLabel(section.day);
+
+  const getSectionToolName = (section: CurriculumSection): string =>
+    getToolNameFromTitle(section.title);
+
+  const toolUrlMap: Record<string, string> = {
+    chatgpt: "https://chatgpt.com",
+    gemini: "https://gemini.google.com/app",
+    perplexity: "https://www.perplexity.ai",
+    claude: "https://claude.ai",
+    deepseek: "https://chat.deepseek.com",
+  };
+
+  const getToolUrl = (toolName: string): string => {
+    const lowerName = toolName.toLowerCase();
+    const matchedKey = Object.keys(toolUrlMap).find((key) =>
+      lowerName.includes(key),
+    );
+    return matchedKey ? toolUrlMap[matchedKey] : "https://chatgpt.com";
+  };
+
+  const currentSection =
+    curriculum.find((section) =>
+      section.items.some((item) => item.id === currentLesson?.id),
+    ) || curriculum[0];
+  const currentToolName = currentSection
+    ? getToolNameFromTitle(currentSection.title)
+    : "AI Tool";
+  const currentToolUrl = getToolUrl(currentToolName);
+  const currentLessonProgress = curriculum
+    .flatMap((section) => section.items)
+    .find((item) => item.id === currentLesson?.id);
+  const isCurrentLessonCompleted = !!currentLessonProgress?.completed;
+  const isDemoQuizLesson = !!currentLesson && currentLesson.id < 0;
+  const canCompleteCurrentLesson =
+    (!isDemoQuizLesson && isCurrentLessonCompleted) ||
+    (isQuizLesson
+      ? quizSubmitted
+      : !currentLesson?.videoUrl || canMarkComplete);
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -1920,7 +1569,7 @@ function LearningPageContent() {
                 </div>
 
                 {/* Curriculum list */}
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div className="overflow-y-auto p-3 space-y-2 max-h-[420px] lg:max-h-[460px]">
                   {curriculum.map((section, sectionIndex) => {
                     const dayLocked = isDayLocked(sectionIndex);
                     const isCurrentDay = sectionIndex === getCurrentDayIndex();
@@ -1960,18 +1609,18 @@ function LearningPageContent() {
                         >
                           <div className="flex flex-col items-start text-left">
                             <span
-                              className={`text-[10px] font-bold uppercase tracking-wider ${
+                              className={`text-[11px] font-bold uppercase tracking-wider ${
                                 dayLocked ? "text-slate-400" : "text-indigo-500"
                               }`}
                             >
-                              {section.day}
+                              {getSectionDayLabel(section)}
                             </span>
                             <span
-                              className={`text-xs font-semibold mt-0.5 ${
+                              className={`text-sm font-semibold mt-0.5 ${
                                 dayLocked ? "text-slate-500" : "text-slate-800"
                               }`}
                             >
-                              {section.title}
+                              {getSectionToolName(section)}
                             </span>
                           </div>
                           {dayLocked ? (
@@ -1994,7 +1643,14 @@ function LearningPageContent() {
                               className="overflow-hidden"
                             >
                               <div className="px-2 pb-2 space-y-0.5 border-t border-slate-100">
-                                {section.items.map((item) => {
+                                {(() => {
+                                  const quizItem =
+                                    section.items.find((item) => item.type === "quiz") || null;
+                                  const lessonItems = section.items.filter(
+                                    (item) => item.type !== "quiz",
+                                  );
+
+                                  return lessonItems.map((item) => {
                                   const itemLocked = isLessonLocked(
                                     item,
                                     sectionIndex,
@@ -2064,7 +1720,62 @@ function LearningPageContent() {
                                       </div>
                                     </div>
                                   );
-                                })}
+                                  });
+                                })()}
+                                {(() => {
+                                  const quizItem =
+                                    section.items.find((item) => item.type === "quiz") || null;
+                                  const quizLocked = quizItem
+                                    ? isLessonLocked(quizItem, sectionIndex)
+                                    : true;
+                                  const isDemoQuiz = !quizItem;
+                                  const canOpenQuiz = quizItem ? !quizLocked : !dayLocked;
+                                  const isQuizActive = quizItem
+                                    ? quizItem.active
+                                    : activeDemoQuizSectionId === section.id;
+
+                                  return (
+                                    <div
+                                      onClick={() =>
+                                        canOpenQuiz &&
+                                        (quizItem
+                                          ? handleLessonClick(quizItem)
+                                          : handleOpenDemoQuiz(section))
+                                      }
+                                      className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border transition-all ${
+                                        canOpenQuiz
+                                          ? isQuizActive
+                                            ? "cursor-pointer bg-orange-50 border-orange-200"
+                                            : "cursor-pointer bg-orange-50/60 border-orange-200 hover:bg-orange-100/70"
+                                          : "cursor-not-allowed opacity-70 border-dashed border-orange-200 bg-orange-50/40"
+                                      }`}
+                                      title={
+                                        canOpenQuiz
+                                          ? "Open quiz"
+                                          : "Quiz not available yet"
+                                      }
+                                    >
+                                      <div className="mt-0.5 shrink-0">
+                                        {quizItem?.completed ? (
+                                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                        ) : (
+                                          <HelpCircle className="w-4 h-4 text-orange-500" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <span className="text-xs font-semibold block leading-tight text-orange-800">
+                                          {quizItem?.title ||
+                                            `${normalizeDayLabel(section.day)} Quiz`}
+                                        </span>
+                                        <span className="text-[10px] font-medium flex items-center gap-1 mt-1 text-orange-600">
+                                          <Clock className="w-3 h-3" />{" "}
+                                          {quizItem?.duration ||
+                                            (isDemoQuiz ? "Demo quiz preview" : "Day-wise quiz")}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </motion.div>
                           )}
@@ -2077,11 +1788,11 @@ function LearningPageContent() {
                 {/* AI Tool button — minimalist professional */}
                 <div className="p-4 border-t border-slate-100 shrink-0">
                   <button
-                    onClick={() => window.open("https://chatgpt.com", "_blank")}
+                    onClick={() => window.open(currentToolUrl, "_blank")}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium transition-all group"
                   >
                     <Sparkles className="w-4 h-4 text-indigo-500 group-hover:rotate-12 transition-transform" />
-                    <span>Open AI Tool</span>
+                    <span>Open {currentToolName}</span>
                     <ExternalLink className="w-3.5 h-3.5 ml-auto text-indigo-400" />
                   </button>
                 </div>
@@ -2102,41 +1813,10 @@ function LearningPageContent() {
         )}
 
         {/* ── RIGHT: Main content (video + simplified below) ── */}
-        <main className={`flex-1 overflow-y-auto ${isPageFullscreen ? 'bg-black' : 'bg-[#F8FAFC]'}`}>
-          <div className={isPageFullscreen ? 'w-full h-full' : 'max-w-4xl mx-auto p-6 md:p-8'}>
-            {/* Video Language Selector - Only show for legacy videos without unified audio tracks (hidden in fullscreen) */}
-            {!isPageFullscreen && currentLesson?.languages && !currentLesson?.audioTracks?.length && (
-              <div className="mb-4 flex items-center gap-3 bg-white px-4 py-3 rounded-lg border border-slate-200 shadow-sm">
-                <Globe className="w-4 h-4 text-indigo-600" />
-                <span className="text-sm font-medium text-slate-700">Video Language:</span>
-                <select
-                  value={selectedLanguage}
-                  onChange={(e) => handleLanguageChange(e.target.value as "english" | "hindi" | "marathi")}
-                  disabled={isLoadingLanguage}
-                  className="ml-auto px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-sm font-medium text-slate-700 hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <option value="english">English</option>
-                  <option value="hindi">Hindi</option>
-                  <option value="marathi">Marathi</option>
-                </select>
-                {isLoadingLanguage && (
-                  <Loader className="w-4 h-4 text-indigo-600 animate-spin" />
-                )}
-              </div>
-            )}
-
-            {/* Info banner for unified video (hidden in fullscreen) */}
-            {!isPageFullscreen && currentLesson?.audioTracks?.length ? (
-              <div className="mb-4 flex items-center gap-3 bg-indigo-50 px-4 py-3 rounded-lg border border-indigo-200">
-                <Globe className="w-4 h-4 text-indigo-600" />
-                <span className="text-sm font-medium text-indigo-700">
-                  Multi-language audio available - Use the language selector on the video player to switch
-                </span>
-              </div>
-            ) : null}
-
+        <main className="flex-1 overflow-y-auto bg-[#F8FAFC]">
+          <div className="max-w-4xl mx-auto p-6 md:p-8">
             {/* Enhanced Video Player Container - Supports Database & YouTube Videos */}
-            {currentLesson?.videoUrl || currentLesson?.unifiedVideoUrl ? (
+            {currentLesson?.videoUrl ? (
               <div
                 className={`${isPageFullscreen ? 'w-screen h-screen fixed inset-0 z-[9999]' : 'w-full aspect-video rounded-2xl shadow-xl border border-slate-800 mb-6'} bg-slate-900 relative overflow-hidden`}
                 onContextMenu={(e) => {
@@ -2147,12 +1827,6 @@ function LearningPageContent() {
                 <SmartVideoPlayer
                   videoUrl={currentLesson.unifiedVideoUrl || currentLesson.videoUrl || ""}
                   title={currentLesson.title}
-                  playerRef={
-                    isControllableCurrentVideo ? lessonVideoPlayerRef : undefined
-                  }
-                  onDatabasePlayerStateChange={setLessonVideoPlayerState}
-                  audioTracks={currentLesson.audioTracks || []}
-                  preferredAudioTrack={currentLesson.preferredAudioTrack}
                 />
 
                 {/* Screenshot Prevention Canvas */}
@@ -2164,6 +1838,7 @@ function LearningPageContent() {
                     return false;
                   }}
                 />
+
               </div>
             ) : (
               <div className="w-full aspect-video bg-slate-200 rounded-2xl shadow-xl border border-slate-300 mb-6 flex flex-col items-center justify-center gap-3">
@@ -2174,138 +1849,43 @@ function LearningPageContent() {
               </div>
             )}
 
-            {/* ── Below Video Section (hidden in fullscreen) ── */}
-            {!isPageFullscreen && (
-              <>
-                <div className="flex items-start justify-between gap-4 mb-6">
-                  {/* Left: Title */}
-                  <div>
-                    <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
-                      {currentLesson?.orderIndex}.{" "}
-                      {currentLesson?.title || "No lesson selected"}
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-1 font-medium uppercase tracking-wider">
-                      {currentLesson?.type || "Unknown"} ·{" "}
-                      {currentLesson?.duration || "N/A"}
-                    </p>
-                  </div>
-
-                  {/* Right: Controls */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    {isControllableCurrentVideo && (
-                      <>
-                        {/* Play / Pause */}
-                        <button
-                          onClick={() =>
-                            lessonVideoPlayerRef.current?.togglePlay()
-                          }
-                          disabled={
-                            lessonVideoPlayerState.isLoading ||
-                            !lessonVideoPlayerState.canControl
-                          }
-                          className="flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl shadow-sm"
-                          type="button"
-                        >
-                          {lessonVideoPlayerState.isPlaying ? (
-                            <Pause className="w-4 h-4" />
-                          ) : (
-                            <Play className="w-4 h-4" fill="currentColor" />
-                          )}
-                          {lessonVideoPlayerState.isPlaying ? "Pause" : "Play"}
-                        </button>
-
-                        {/* Fullscreen */}
-                        <button
-                          onClick={() =>
-                            setIsPageFullscreen(!isPageFullscreen)
-                          }
-                          disabled={!lessonVideoPlayerState.canControl}
-                          className="flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl shadow-sm"
-                          type="button"
-                        >
-                          {isPageFullscreen ? (
-                            <Minimize className="w-4 h-4" />
-                          ) : (
-                            <Maximize className="w-4 h-4" />
-                          )}
-                          {isPageFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-                        </button>
-                      </>
-                    )}
-
-                    {/* Previous */}
-                    <button
-                      onClick={handlePreviousLesson}
-                      disabled={
-                        curriculum
-                          .flatMap((section) => section.items)
-                          .findIndex((l) => l.id === currentLesson?.id) === 0
-                      }
-                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold py-2.5 px-5 rounded-xl shadow-md active:scale-[0.97]"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                      Previous
-                    </button>
-
-                    {/* Next */}
-                    {(() => {
-                      const currentDayIndex = getCurrentDayIndex();
-                      const currentDay = curriculum[currentDayIndex];
-
-                      const currentLessonIndexInDay =
-                        currentDay?.items.findIndex(
-                          (item) => item.id === currentLesson?.id
-                        ) ?? -1;
-
-                      const isLastLessonInDay =
-                        currentLessonIndexInDay ===
-                        (currentDay?.items.length ?? 0) - 1;
-
-                      const isCurrentDayCompleted =
-                        isDayCompleted(currentDayIndex);
-
-                      const isLastLesson =
-                        curriculum
-                          .flatMap((section) => section.items)
-                          .findIndex((l) => l.id === currentLesson?.id) ===
-                        curriculum.flatMap((section) => section.items).length - 1;
-
-                      const isNextDisabled = isLastLessonInDay
-                        ? !isCurrentDayCompleted
-                        : false;
-
-                      return (
-                        <button
-                          onClick={handleMarkComplete}
-                          disabled={isNextDisabled || isLastLesson}
-                          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold py-2.5 px-5 rounded-xl shadow-md active:scale-[0.97]"
-                        >
-                          {currentLesson?.completed ? (
-                            <>
-                              <ChevronRight className="w-4 h-4" />
-                              Continue
-                            </>
-                          ) : isLastLessonInDay && !isCurrentDayCompleted ? (
-                            <>
-                              <Lock className="w-4 h-4" />
-                              Locked
-                            </>
-                          ) : isLastLesson ? (
-                            <>
-                              <CheckCircle2 className="w-4 h-4" />
-                              Finished
-                            </>
-                          ) : (
-                            <>
-                              Next
-                              <ChevronRight className="w-4 h-4" />
-                            </>
-                          )}
-                        </button>
-                      );
-                    })()}
-                  </div>
-                </div>
+            {/* ── Below Video: Lesson Title + Prev/Next Buttons + Overview only ── */}
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
+                  {currentLesson?.orderIndex}.{" "}
+                  {currentLesson?.title || "No lesson selected"}
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 font-medium uppercase tracking-wider">
+                  {currentLesson?.type || "Unknown"} ·{" "}
+                  {currentLesson?.duration || "N/A"}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {/* Previous Button */}
+                <button
+                  onClick={handlePreviousLesson}
+                  disabled={
+                    curriculum.flatMap((section) => section.items).findIndex(
+                      (l) => l.id === currentLesson?.id,
+                    ) === 0
+                  }
+                  className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
+                  title="Go to previous lesson"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </button>
+                {/* Next Button */}
+                <button
+                  onClick={handleMarkComplete}
+                  className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
 
                 {/* Overview */}
                 <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm">

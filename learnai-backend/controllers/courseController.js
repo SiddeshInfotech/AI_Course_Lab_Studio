@@ -312,7 +312,7 @@ export const addLesson = async (req, res) => {
             courseId,
             title,
             description: description || null,
-            content: content || null,
+            content: typeof content === "string" ? content : (content ? JSON.stringify(content) : null),
             videoUrl: videoUrl || null,
             videoUrlEnglish: videoUrlEnglish || videoUrl || null,
             videoUrlHindi: videoUrlHindi || null,
@@ -322,7 +322,9 @@ export const addLesson = async (req, res) => {
             section: section || null,
             sectionTitle: sectionTitle || null,
             type: type || "video",
-            objectives: objectives || null,
+            objectives: Array.isArray(objectives)
+                ? JSON.stringify(objectives)
+                : (typeof objectives === "string" ? objectives : null),
         });
 
         res.status(201).json(lesson);
@@ -360,7 +362,9 @@ export const editLesson = async (req, res) => {
         const updated = await updateLesson(lessonId, {
             ...(title && { title }),
             ...(description !== undefined && { description }),
-            ...(content !== undefined && { content }),
+            ...(content !== undefined && {
+                content: typeof content === "string" ? content : (content ? JSON.stringify(content) : null)
+            }),
             ...(videoUrl !== undefined && { videoUrl }),
             ...(videoUrlEnglish !== undefined && { videoUrlEnglish }),
             ...(videoUrlHindi !== undefined && { videoUrlHindi }),
@@ -370,7 +374,11 @@ export const editLesson = async (req, res) => {
             ...(section !== undefined && { section }),
             ...(sectionTitle !== undefined && { sectionTitle }),
             ...(type !== undefined && { type }),
-            ...(objectives !== undefined && { objectives }),
+            ...(objectives !== undefined && {
+                objectives: Array.isArray(objectives)
+                    ? JSON.stringify(objectives)
+                    : (typeof objectives === "string" ? objectives : null)
+            }),
         });
 
         res.json(updated);
@@ -767,7 +775,7 @@ export const uploadUnifiedVideo = async (req, res) => {
         // Process video file with FFmpeg for web compatibility (H.264/AAC)
         console.log(`📤 Processing unified video for lesson ${lessonIdNum}...`);
         console.log(`   Original video: ${videoFile.originalname} (${Math.round(videoFile.size / 1024 / 1024)}MB)`);
-        
+
         let videoResult;
         try {
             // Use processVideoForStorage which transcodes to H.264/AAC

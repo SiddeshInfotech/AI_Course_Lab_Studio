@@ -81,6 +81,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      authLib.clear();
+      setUser(null);
+      router.push("/");
+    };
+
+    window.addEventListener("auth:expired", handleAuthExpired as EventListener);
+    return () => {
+      window.removeEventListener(
+        "auth:expired",
+        handleAuthExpired as EventListener,
+      );
+    };
+  }, [router]);
+
   const login = async (username: string, password: string) => {
     try {
       const response = await api.auth.login(username, password);

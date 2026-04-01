@@ -40,19 +40,23 @@ const clearClientAuthOnUnauthorized = (status: number, errorCode?: string) => {
   // Only clear on SESSION_EXPIRED or other critical errors
   if (
     errorCode === "SESSION_EXPIRED" ||
+    errorCode === "TOKEN_EXPIRED" ||
+    errorCode === "JWT_EXPIRED" ||
     errorCode === "INVALID_TOKEN_FORMAT" ||
     !errorCode // Fallback to clear if no error code provided
   ) {
     localStorage.removeItem("token");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("user");
+    window.dispatchEvent(
+      new CustomEvent("auth:expired", { detail: { status, errorCode } }),
+    );
     if (errorCode) {
-      console.warn(`🔴 Auth cleared due to ${errorCode}`);
+      console.warn(`[AUTH] Cleared due to ${errorCode}`);
     }
   }
 };
-
-async function parseResponse<T>(response: Response): Promise<T> {
+const parseResponse = async <T>(response: Response): Promise<T> => {
   const contentType = response.headers.get("content-type");
   const fallback = `HTTP error ${response.status}`;
 
@@ -101,7 +105,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 
   return {} as T;
-}
+};
 
 const getAuthHeaders = (): HeadersInit => {
   const headers: HeadersInit = {
@@ -1706,7 +1710,9 @@ export const api = {
 
     async getProfile() {
       const response = await fetch(`${API_BASE_URL}/center/me`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("centerToken")}`,
+        },
       });
       return parseResponse<{
         center: {
@@ -1725,7 +1731,9 @@ export const api = {
 
     async getDashboardStats() {
       const response = await fetch(`${API_BASE_URL}/center/dashboard/stats`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("centerToken")}`,
+        },
       });
       return parseResponse<{
         stats: {
@@ -1740,7 +1748,12 @@ export const api = {
       }>(response);
     },
 
-    async getStudents(params?: { page?: number; limit?: number; search?: string; course?: string }) {
+    async getStudents(params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      course?: string;
+    }) {
       const query = new URLSearchParams();
       if (params?.page) query.set("page", params.page.toString());
       if (params?.limit) query.set("limit", params.limit.toString());
@@ -1748,7 +1761,9 @@ export const api = {
       if (params?.course) query.set("course", params.course);
 
       const response = await fetch(`${API_BASE_URL}/center/students?${query}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("centerToken")}`,
+        },
       });
       return parseResponse<{
         students: Array<{
@@ -1758,21 +1773,35 @@ export const api = {
           email: string | null;
           rollNumber: string | null;
           createdAt: string;
-          enrolledCourses: Array<{ id: number; title: string; enrolledAt: string }>;
+          enrolledCourses: Array<{
+            id: number;
+            title: string;
+            enrolledAt: string;
+          }>;
           totalCourses: number;
           completedCourses: number;
           avgProgress: number;
           lastActivity: string | null;
           dailyUsageLast7Days: number;
         }>;
-        pagination: { total: number; page: number; limit: number; totalPages: number };
+        pagination: {
+          total: number;
+          page: number;
+          limit: number;
+          totalPages: number;
+        };
       }>(response);
     },
 
     async getStudentDetails(studentId: number) {
-      const response = await fetch(`${API_BASE_URL}/center/students/${studentId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/center/students/${studentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("centerToken")}`,
+          },
+        },
+      );
       return parseResponse<{
         student: {
           id: number;
@@ -1783,7 +1812,13 @@ export const api = {
           createdAt: string;
         };
         coursesProgress: Array<{
-          course: { id: number; title: string; category: string; level: string; totalLessons: number };
+          course: {
+            id: number;
+            title: string;
+            category: string;
+            level: string;
+            totalLessons: number;
+          };
           enrolledAt: string;
           progress: {
             completed: boolean;
@@ -1811,7 +1846,9 @@ export const api = {
 
     async getCourses() {
       const response = await fetch(`${API_BASE_URL}/center/courses`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("centerToken")}`,
+        },
       });
       return parseResponse<{
         courses: Array<{
@@ -1831,9 +1868,14 @@ export const api = {
     },
 
     async getActivity(limit?: number) {
-      const response = await fetch(`${API_BASE_URL}/center/activity?limit=${limit || 50}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("centerToken")}` },
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/center/activity?limit=${limit || 50}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("centerToken")}`,
+          },
+        },
+      );
       return parseResponse<{
         activities: Array<{
           type: "lesson_complete" | "course_complete";
