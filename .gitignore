@@ -7,7 +7,8 @@ node_modules/
 .pnp
 .pnp.js
 
-docs
+# Project docs and local notes
+docs/
 
 # Testing
 coverage/
@@ -16,10 +17,15 @@ coverage/
 # Next.js Build
 .next/
 out/
+learnai-frontend/.next/
+learnai-frontend/out/
 
 # Build outputs
 dist/
 build/
+learnai-frontend/dist/
+release/
+app/dist/
 
 # Environment Variables
 .env
@@ -57,21 +63,16 @@ next-env.d.ts
 .turbo/
 .eslintcache
 
-# Documentation (if contains sensitive info)
-# docs/
-
 # Test artifacts
 *.test.js.snap
 __snapshots__/
 
-# Electron build artifacts
-release/
-app/dist/
-
-# Temporary files
+# Temporary files and archives
 *.tmp
 tmp/
 temp/
+*.zip
+*.mp4
 
 # Cleanup scripts (one-time use, don't commit)
 cleanup-git.sh
@@ -86,18 +87,4 @@ test-video-fix.sh
 
 # Test scripts with credentials (optional - uncomment to exclude all test scripts)
 # test-*.sh
-# test-*.jslearnai-frontend/dist/
-learnai-frontend/.next/
-learnai-frontend/out/
-node_modules/
-
-docs/
-AI_Course_Lab_Studio/docs
-
-node_modules/
-dist/
-build/
-.env
-*.log
-*.mp4
-*.zip
+# test-*.js
