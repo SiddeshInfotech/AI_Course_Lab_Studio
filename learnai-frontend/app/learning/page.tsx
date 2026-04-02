@@ -227,7 +227,7 @@ const DatabaseVideoPlayer = forwardRef<
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(null);
   const [currentAudioTrack, setCurrentAudioTrack] = useState(0);
   const [showAudioSelector, setShowAudioSelector] = useState(false);
-  
+
   // Video watch time limit state
   const [isLimitExceeded, setIsLimitExceeded] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number>(0);
@@ -375,51 +375,24 @@ const DatabaseVideoPlayer = forwardRef<
     }
   };
 
-  const toggleFullscreen = async () => {
-    const video = videoRef.current;
-    const container = containerRef.current;
+  const toggleFullscreen = () => {
+    // Simple state-based fullscreen using CSS
+    // Avoids browser fullscreen API issues in Electron
+    const newState = !isFullscreen;
 
-    if (!video || !container) {
-      return;
-    }
+    console.log("🖥️ Fullscreen toggled:", !isFullscreen);
 
-    const isAlreadyFullscreen = 
-      document.fullscreenElement !== null || 
-      (document as any).webkitFullscreenElement !== null ||
-      document.pictureInPictureElement !== null;
+    setIsFullscreen(newState);
+    isFullscreenRef.current = newState;
 
-    try {
-      if (!isAlreadyFullscreen) {
-        // Use video element for fullscreen (like YouTube)
-        const requestFullscreen = 
-          video.requestFullscreen || 
-          (video as any).webkitRequestFullscreen || 
-          (video as any).webkitEnterFullscreen;
-        
-        if (requestFullscreen) {
-          await requestFullscreen.call(video);
-        } else {
-          // Fallback to container
-          const containerRequest = 
-            container.requestFullscreen || 
-            (container as any).webkitRequestFullscreen;
-          
-          if (containerRequest) {
-            await containerRequest.call(container);
-          }
-        }
-      } else {
-        // Exit fullscreen
-        const exitFullscreen = 
-          document.exitFullscreen || 
-          (document as any).webkitExitFullscreen;
-        
-        if (exitFullscreen) {
-          await exitFullscreen.call(document);
-        }
-      }
-    } catch (err) {
-      console.error("Fullscreen error:", err);
+    if (newState) {
+      // Entering fullscreen
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+    } else {
+      // Exiting fullscreen
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
     }
   };
 
@@ -449,53 +422,39 @@ const DatabaseVideoPlayer = forwardRef<
     resolvedVideoUrl,
   ]);
 
+  // Fullscreen state is now managed purely through React state and CSS
+  // No need for browser fullscreen API event listeners
+
+  // Handle ESC key to exit fullscreen
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isFs = 
-        document.fullscreenElement !== null || 
-        (document as any).webkitFullscreenElement !== null;
-      
-      setIsFullscreen(isFs);
-      isFullscreenRef.current = isFs;
-      setIsDomFullscreen(isFs);
-      
-      // Fix overflow issues for fullscreen
-      const container = containerRef.current;
-      if (container) {
-        if (isFs) {
-          container.style.overflow = 'visible';
-          container.style.position = 'fixed';
-          container.style.top = '0';
-          container.style.left = '0';
-          container.style.width = '100vw';
-          container.style.height = '100vh';
-          container.style.zIndex = '999999';
-          container.style.maxWidth = '100vw';
-          container.style.maxHeight = '100vh';
-          container.classList.remove('rounded-2xl', 'border', 'border-slate-800');
-        } else {
-          container.style.overflow = '';
-          container.style.position = '';
-          container.style.top = '';
-          container.style.left = '';
-          container.style.width = '';
-          container.style.height = '';
-          container.style.zIndex = '';
-          container.style.maxWidth = '';
-          container.style.maxHeight = '';
-          container.classList.add('rounded-2xl', 'border', 'border-slate-800');
-        }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        console.log("ESC pressed - exiting fullscreen");
+        toggleFullscreen();
       }
     };
 
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+
+  // Handle body overflow when fullscreen changes
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    }
 
     return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
     };
-  }, []);
+  }, [isFullscreen]);
 
   useEffect(() => {
     return () => {
@@ -896,27 +855,8 @@ const DatabaseVideoPlayer = forwardRef<
   return (
     <div
       ref={containerRef}
-      className={`bg-black group relative ${className}`}
+      className={`bg-black group relative ${isFullscreen ? 'w-screen h-screen fixed inset-0 z-[9999]' : ''} ${className}`}
     >
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          toggleFullscreen();
-        }}
-        className={`absolute top-4 right-4 z-20 flex items-center gap-1.5 rounded-lg bg-black/60 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm transition-opacity pointer-events-auto ${
-          isFullscreen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-        title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
-        type="button"
-      >
-        {isFullscreen ? (
-          <Minimize className="w-4 h-4" />
-        ) : (
-          <Maximize className="w-4 h-4" />
-        )}
-        {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-      </button>
-
       {/* Video Element */}
       <video
         ref={videoRef}
@@ -1382,6 +1322,7 @@ function LearningPageContent() {
   const [isLoadingCurriculum, setIsLoadingCurriculum] = useState(true);
   const [courseTitle, setCourseTitle] = useState("Advanced Neural Networks");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isPageFullscreen, setIsPageFullscreen] = useState(false);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({
     day1: true,
   });
@@ -1400,6 +1341,31 @@ function LearningPageContent() {
       setLessonVideoPlayerState(DEFAULT_LESSON_VIDEO_PLAYER_STATE);
     }
   }, [currentLesson?.id, currentLesson?.videoUrl, isControllableCurrentVideo]);
+
+  // Handle page-level fullscreen and ESC key
+  useEffect(() => {
+    if (isPageFullscreen) {
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    }
+  }, [isPageFullscreen]);
+
+  useEffect(() => {
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isPageFullscreen) {
+        console.log("ESC pressed - exiting page fullscreen");
+        setIsPageFullscreen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscKey);
+    return () => {
+      document.removeEventListener("keydown", handleEscKey);
+    };
+  }, [isPageFullscreen]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -1642,16 +1608,19 @@ function LearningPageContent() {
     return !isDayCompleted(sectionIndex - 1);
   };
   // Helper: Get video URL based on selected language
-  const getVideoUrlForLanguage = (lesson: CurrentLesson | LessonItem): string | null => {
+  const getVideoUrlForLanguage = (
+    lesson: CurrentLesson | LessonItem,
+    language: "english" | "hindi" | "marathi" = selectedLanguage,
+  ): string | null => {
     if (!lesson.languages) {
       return lesson.videoUrl || null;
     }
 
-    const langKey = selectedLanguage as keyof typeof lesson.languages;
+    const langKey = language as keyof typeof lesson.languages;
     const videoUrl = lesson.languages[langKey];
     
     // Fallback to English if selected language video doesn't exist
-    if (!videoUrl && selectedLanguage !== "english") {
+    if (!videoUrl && language !== "english") {
       return lesson.languages.english || lesson.videoUrl || null;
     }
     
@@ -1670,7 +1639,10 @@ function LearningPageContent() {
       setSelectedLanguage(newLanguage);
 
       // Update current lesson with new video URL
-      const newVideoUrl = getVideoUrlForLanguage({ ...currentLesson, languages: currentLesson.languages });
+      const newVideoUrl = getVideoUrlForLanguage(
+        { ...currentLesson, languages: currentLesson.languages },
+        newLanguage,
+      );
       setCurrentLesson({
         ...currentLesson,
         videoUrl: newVideoUrl,
@@ -1845,45 +1817,47 @@ function LearningPageContent() {
 
   return (
     <div className="h-screen bg-[#F8FAFC] flex flex-col font-sans text-slate-900 overflow-hidden">
-      {/* ── Header ── */}
-      <header className="h-16 bg-white border-b border-slate-200/80 flex items-center px-4 md:px-6 gap-3 shrink-0 z-30 shadow-sm relative">
-        {/* Back button */}
-        <button
-          onClick={() => router.push("/ai-dashboard")}
-          className="p-2 hover:bg-slate-100 rounded-lg transition-colors group shrink-0"
-          title="Go back to dashboard"
-        >
-          <ArrowLeft className="w-4 h-4 text-slate-500 group-hover:text-slate-800 transition-colors" />
-        </button>
+      {/* ── Header (hidden in fullscreen) ── */}
+      {!isPageFullscreen && (
+        <header className="h-16 bg-white border-b border-slate-200/80 flex items-center px-4 md:px-6 gap-3 shrink-0 z-30 shadow-sm relative">
+          {/* Back button */}
+          <button
+            onClick={() => router.push("/ai-dashboard")}
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors group shrink-0"
+            title="Go back to dashboard"
+          >
+            <ArrowLeft className="w-4 h-4 text-slate-500 group-hover:text-slate-800 transition-colors" />
+          </button>
 
-        <div className="h-6 w-px bg-slate-200 hidden md:block" />
+          <div className="h-6 w-px bg-slate-200 hidden md:block" />
 
-        {/* Logo */}
-        <div className="hidden md:flex items-center gap-3 pr-4 shrink-0">
-          <div className="relative w-28 h-7">
-            <Image
-              src="/logo.png"
-              alt="Logo"
-              fill
-              sizes="112px"
-              className="object-contain"
-            />
+          {/* Logo */}
+          <div className="hidden md:flex items-center gap-3 pr-4 shrink-0">
+            <div className="relative w-28 h-7">
+              <Image
+                src="/logo.png"
+                alt="Logo"
+                fill
+                sizes="112px"
+                className="object-contain"
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Course title — centered absolutely */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center justify-center">
-          <span className="text-[9px] font-semibold text-indigo-500 uppercase tracking-[0.15em]">
-            Course
-          </span>
-          <h1 className="text-sm font-semibold text-slate-800 leading-tight tracking-tight whitespace-nowrap">
-            {courseTitle}
-          </h1>
-        </div>
-      </header>
+          {/* Course title — centered absolutely */}
+          <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center justify-center">
+            <span className="text-[9px] font-semibold text-indigo-500 uppercase tracking-[0.15em]">
+              Course
+            </span>
+            <h1 className="text-sm font-semibold text-slate-800 leading-tight tracking-tight whitespace-nowrap">
+              {courseTitle}
+            </h1>
+          </div>
+        </header>
+      )}
 
-      {/* License Invalid Warning */}
-      {licenseInvalidReason && (
+      {/* License Invalid Warning (hidden in fullscreen) */}
+      {!isPageFullscreen && licenseInvalidReason && (
         <div className="bg-red-50 border-b border-red-200 px-4 md:px-6 py-3 flex items-center gap-3 shrink-0">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
           <div className="flex-1">
@@ -1906,9 +1880,9 @@ function LearningPageContent() {
 
       {/* ── Body ── */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* ── LEFT Sidebar: Course Content ── */}
+        {/* ── LEFT Sidebar: Course Content (hidden in fullscreen) ── */}
         <AnimatePresence initial={false}>
-          {isSidebarOpen && (
+          {isSidebarOpen && !isPageFullscreen && (
             <motion.aside
               key="sidebar"
               initial={{ width: 0, opacity: 0 }}
@@ -2116,8 +2090,8 @@ function LearningPageContent() {
           )}
         </AnimatePresence>
 
-        {/* Floating open-sidebar button — only when closed */}
-        {!isSidebarOpen && (
+        {/* Floating open-sidebar button — only when closed (hidden in fullscreen) */}
+        {!isSidebarOpen && !isPageFullscreen && (
           <button
             onClick={() => setIsSidebarOpen(true)}
             className="absolute top-4 left-4 z-30 p-2 bg-white rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-all"
@@ -2128,10 +2102,10 @@ function LearningPageContent() {
         )}
 
         {/* ── RIGHT: Main content (video + simplified below) ── */}
-        <main className="flex-1 overflow-y-auto bg-[#F8FAFC]">
-          <div className="max-w-4xl mx-auto p-6 md:p-8">
-            {/* Video Language Selector - Only show for legacy videos without unified audio tracks */}
-            {currentLesson?.languages && !currentLesson?.audioTracks?.length && (
+        <main className={`flex-1 overflow-y-auto ${isPageFullscreen ? 'bg-black' : 'bg-[#F8FAFC]'}`}>
+          <div className={isPageFullscreen ? 'w-full h-full' : 'max-w-4xl mx-auto p-6 md:p-8'}>
+            {/* Video Language Selector - Only show for legacy videos without unified audio tracks (hidden in fullscreen) */}
+            {!isPageFullscreen && currentLesson?.languages && !currentLesson?.audioTracks?.length && (
               <div className="mb-4 flex items-center gap-3 bg-white px-4 py-3 rounded-lg border border-slate-200 shadow-sm">
                 <Globe className="w-4 h-4 text-indigo-600" />
                 <span className="text-sm font-medium text-slate-700">Video Language:</span>
@@ -2145,12 +2119,14 @@ function LearningPageContent() {
                   <option value="hindi">Hindi</option>
                   <option value="marathi">Marathi</option>
                 </select>
-                {isLoadingLanguage && <Loader className="w-4 h-4 text-indigo-600 animate-spin" />}
+                {isLoadingLanguage && (
+                  <Loader className="w-4 h-4 text-indigo-600 animate-spin" />
+                )}
               </div>
             )}
 
-            {/* Info banner for unified video */}
-            {currentLesson?.audioTracks?.length ? (
+            {/* Info banner for unified video (hidden in fullscreen) */}
+            {!isPageFullscreen && currentLesson?.audioTracks?.length ? (
               <div className="mb-4 flex items-center gap-3 bg-indigo-50 px-4 py-3 rounded-lg border border-indigo-200">
                 <Globe className="w-4 h-4 text-indigo-600" />
                 <span className="text-sm font-medium text-indigo-700">
@@ -2162,7 +2138,7 @@ function LearningPageContent() {
             {/* Enhanced Video Player Container - Supports Database & YouTube Videos */}
             {currentLesson?.videoUrl || currentLesson?.unifiedVideoUrl ? (
               <div
-                className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden border border-slate-800 mb-6"
+                className={`${isPageFullscreen ? 'w-screen h-screen fixed inset-0 z-[9999]' : 'w-full aspect-video rounded-2xl shadow-xl border border-slate-800 mb-6'} bg-slate-900 relative overflow-hidden`}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   return false;
@@ -2198,173 +2174,175 @@ function LearningPageContent() {
               </div>
             )}
 
-            {/* ── Below Video: Lesson Title + Prev/Next Buttons + Overview only ── */}
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
-                  {currentLesson?.orderIndex}.{" "}
-                  {currentLesson?.title || "No lesson selected"}
-                </h2>
-                <p className="text-xs text-slate-400 mt-1 font-medium uppercase tracking-wider">
-                  {currentLesson?.type || "Unknown"} ·{" "}
-                  {currentLesson?.duration || "N/A"}
-                </p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                {isControllableCurrentVideo && (
-                  <>
-                    <button
-                      onClick={() => lessonVideoPlayerRef.current?.togglePlay()}
-                      disabled={
-                        lessonVideoPlayerState.isLoading ||
-                        !lessonVideoPlayerState.canControl
-                      }
-                      className="flex justify-center items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl transition-all shadow-sm shrink-0"
-                      title={
-                        lessonVideoPlayerState.isPlaying
-                          ? "Pause video"
-                          : "Play video"
-                      }
-                      type="button"
-                    >
-                      {lessonVideoPlayerState.isPlaying ? (
-                        <Pause className="w-4 h-4" />
-                      ) : (
-                        <Play className="w-4 h-4" fill="currentColor" />
-                      )}
-                      {lessonVideoPlayerState.isPlaying ? "Pause" : "Play"}
-                    </button>
-                    <button
-                      onClick={() =>
-                        lessonVideoPlayerRef.current?.toggleFullscreen()
-                      }
-                      disabled={!lessonVideoPlayerState.canControl}
-                      className="flex justify-center items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl transition-all shadow-sm shrink-0"
-                      title={
-                        lessonVideoPlayerState.isFullscreen
-                          ? "Exit fullscreen"
-                          : "Open fullscreen"
-                      }
-                      type="button"
-                    >
-                      {lessonVideoPlayerState.isFullscreen ? (
-                        <Minimize className="w-4 h-4" />
-                      ) : (
-                        <Maximize className="w-4 h-4" />
-                      )}
-                      {lessonVideoPlayerState.isFullscreen
-                        ? "Exit Fullscreen"
-                        : "Fullscreen"}
-                    </button>
-                  </>
-                )}
-                {/* Previous Button */}
-                <button
-                  onClick={handlePreviousLesson}
-                  disabled={
-                    curriculum
-                      .flatMap((section) => section.items)
-                      .findIndex((l) => l.id === currentLesson?.id) === 0
-                  }
-                  className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
-                  title="Go to previous lesson"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </button>
-                {/* Next Button */}
-                {(() => {
-                  const currentDayIndex = getCurrentDayIndex();
-                  const currentDay = curriculum[currentDayIndex];
-                  const currentLessonIndexInDay = currentDay?.items.findIndex(
-                    (item) => item.id === currentLesson?.id,
-                  ) ?? -1;
-                  const isLastLessonInDay = currentLessonIndexInDay === (currentDay?.items.length ?? 0) - 1;
-                  const isCurrentDayCompleted = isDayCompleted(currentDayIndex);
-                  const isLastLesson = curriculum
-                    .flatMap((section) => section.items)
-                    .findIndex((l) => l.id === currentLesson?.id) === curriculum
-                        .flatMap((section) => section.items)
-                        .length - 1;
-
-                  // Disable next if: last lesson in day but day not completed, or trying to go to next day before current day is done
-                  const isNextDisabled = isLastLessonInDay 
-                    ? !isCurrentDayCompleted 
-                    : false;
-
-                  const buttonTitle = currentLesson?.completed
-                    ? "Continue to next lesson"
-                    : isLastLessonInDay && !isCurrentDayCompleted
-                      ? "Complete all lessons in this day to continue"
-                      : isLastLesson 
-                        ? "You've completed all lessons" 
-                        : "Mark this lesson as complete and continue";
-
-                  return (
-                    <button
-                      onClick={handleMarkComplete}
-                      disabled={isNextDisabled || isLastLesson}
-                      className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
-                      title={buttonTitle}
-                    >
-                      {currentLesson?.completed ? (
-                        <>
-                          <ChevronRight className="w-4 h-4" />
-                          Continue
-                        </>
-                      ) : isLastLessonInDay && !isCurrentDayCompleted ? (
-                        <>
-                          <Lock className="w-4 h-4" />
-                          Locked
-                        </>
-                      ) : isLastLesson ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          Finished
-                        </>
-                      ) : (
-                        <>
-                          Next
-                          <ChevronRight className="w-4 h-4" />
-                        </>
-                      )}
-                    </button>
-                  );
-                })()}
-              </div>
-            </div>
-
-            {/* Overview section */}
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <BookOpen className="w-4 h-4 text-indigo-500" />
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
-                  Overview
-                </h3>
-              </div>
-              <p className="text-slate-600 leading-relaxed mb-5">
-                {currentLesson?.description ||
-                  currentLesson?.content ||
-                  "No description available."}
-              </p>
-              {currentLesson?.objectives &&
-                currentLesson.objectives.length > 0 && (
-                  <div className="bg-indigo-50/60 rounded-xl p-5 border border-indigo-100">
-                    <h4 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                      <Target className="w-4 h-4 text-indigo-600" />
-                      Learning Objectives
-                    </h4>
-                    <ul className="space-y-3 text-sm text-indigo-800/80">
-                      {currentLesson.objectives.map((objective, index) => (
-                        <li key={index} className="flex items-start gap-2.5">
-                          <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
-                          {objective}
-                        </li>
-                      ))}
-                    </ul>
+            {/* ── Below Video Section (hidden in fullscreen) ── */}
+            {!isPageFullscreen && (
+              <>
+                <div className="flex items-start justify-between gap-4 mb-6">
+                  {/* Left: Title */}
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
+                      {currentLesson?.orderIndex}.{" "}
+                      {currentLesson?.title || "No lesson selected"}
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1 font-medium uppercase tracking-wider">
+                      {currentLesson?.type || "Unknown"} ·{" "}
+                      {currentLesson?.duration || "N/A"}
+                    </p>
                   </div>
-                )}
-            </div>
+
+                  {/* Right: Controls */}
+                  <div className="flex items-center gap-3 shrink-0">
+                    {isControllableCurrentVideo && (
+                      <>
+                        {/* Play / Pause */}
+                        <button
+                          onClick={() =>
+                            lessonVideoPlayerRef.current?.togglePlay()
+                          }
+                          disabled={
+                            lessonVideoPlayerState.isLoading ||
+                            !lessonVideoPlayerState.canControl
+                          }
+                          className="flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl shadow-sm"
+                          type="button"
+                        >
+                          {lessonVideoPlayerState.isPlaying ? (
+                            <Pause className="w-4 h-4" />
+                          ) : (
+                            <Play className="w-4 h-4" fill="currentColor" />
+                          )}
+                          {lessonVideoPlayerState.isPlaying ? "Pause" : "Play"}
+                        </button>
+
+                        {/* Fullscreen */}
+                        <button
+                          onClick={() =>
+                            setIsPageFullscreen(!isPageFullscreen)
+                          }
+                          disabled={!lessonVideoPlayerState.canControl}
+                          className="flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 text-slate-700 text-sm font-semibold py-2.5 px-4 rounded-xl shadow-sm"
+                          type="button"
+                        >
+                          {isPageFullscreen ? (
+                            <Minimize className="w-4 h-4" />
+                          ) : (
+                            <Maximize className="w-4 h-4" />
+                          )}
+                          {isPageFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                        </button>
+                      </>
+                    )}
+
+                    {/* Previous */}
+                    <button
+                      onClick={handlePreviousLesson}
+                      disabled={
+                        curriculum
+                          .flatMap((section) => section.items)
+                          .findIndex((l) => l.id === currentLesson?.id) === 0
+                      }
+                      className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold py-2.5 px-5 rounded-xl shadow-md active:scale-[0.97]"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Previous
+                    </button>
+
+                    {/* Next */}
+                    {(() => {
+                      const currentDayIndex = getCurrentDayIndex();
+                      const currentDay = curriculum[currentDayIndex];
+
+                      const currentLessonIndexInDay =
+                        currentDay?.items.findIndex(
+                          (item) => item.id === currentLesson?.id
+                        ) ?? -1;
+
+                      const isLastLessonInDay =
+                        currentLessonIndexInDay ===
+                        (currentDay?.items.length ?? 0) - 1;
+
+                      const isCurrentDayCompleted =
+                        isDayCompleted(currentDayIndex);
+
+                      const isLastLesson =
+                        curriculum
+                          .flatMap((section) => section.items)
+                          .findIndex((l) => l.id === currentLesson?.id) ===
+                        curriculum.flatMap((section) => section.items).length - 1;
+
+                      const isNextDisabled = isLastLessonInDay
+                        ? !isCurrentDayCompleted
+                        : false;
+
+                      return (
+                        <button
+                          onClick={handleMarkComplete}
+                          disabled={isNextDisabled || isLastLesson}
+                          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold py-2.5 px-5 rounded-xl shadow-md active:scale-[0.97]"
+                        >
+                          {currentLesson?.completed ? (
+                            <>
+                              <ChevronRight className="w-4 h-4" />
+                              Continue
+                            </>
+                          ) : isLastLessonInDay && !isCurrentDayCompleted ? (
+                            <>
+                              <Lock className="w-4 h-4" />
+                              Locked
+                            </>
+                          ) : isLastLesson ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4" />
+                              Finished
+                            </>
+                          ) : (
+                            <>
+                              Next
+                              <ChevronRight className="w-4 h-4" />
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Overview */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <BookOpen className="w-4 h-4 text-indigo-500" />
+                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
+                      Overview
+                    </h3>
+                  </div>
+
+                  <p className="text-slate-600 leading-relaxed mb-5">
+                    {currentLesson?.description ||
+                      currentLesson?.content ||
+                      "No description available."}
+                  </p>
+
+                  {(currentLesson?.objectives?.length ?? 0) > 0 && (
+                    <div className="bg-indigo-50/60 rounded-xl p-5 border border-indigo-100">
+                      <h4 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                        <Target className="w-4 h-4 text-indigo-600" />
+                        Learning Objectives
+                      </h4>
+
+                      <ul className="space-y-3 text-sm text-indigo-800/80">
+                        {currentLesson?.objectives?.map((objective, index) => (
+                          <li key={index} className="flex items-start gap-2.5">
+                            <CheckCircle2 className="w-4 h-4 text-indigo-500 mt-0.5" />
+                            {objective}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
           </div>
         </main>
       </div>

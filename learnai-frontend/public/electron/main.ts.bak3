@@ -23,9 +23,9 @@ app.commandLine.appendSwitch("disable-extensions");
 app.commandLine.appendSwitch("disable-print-preview");
 
 // Prevent screen capture - Critical for content protection
-// **TEMPORARILY DISABLED TO TEST FULLSCREEN** - These might be blocking fullscreen API
-// app.commandLine.appendSwitch("disable-screen-capture");
-// app.commandLine.appendSwitch("disable-desktop-capture");
+// TEMP DISABLED: app.commandLine.appendSwitch("disable-screen-capture");
+app.commandLine.appendSwitch("disable-desktop-capture");
+
 // ==================== END SECURITY CONFIG ====================
 
 let mainWindow: BrowserWindow | null = null;
@@ -267,21 +267,7 @@ function createWindow() {
   mainWindow.on("enter-full-screen", syncRendererFullscreenState);
   mainWindow.on("leave-full-screen", syncRendererFullscreenState);
 
-  // Prevent window fullscreen when HTML element goes fullscreen (video player)
-  // This ensures ONLY the video player goes fullscreen, not the entire Electron window
-  mainWindow.webContents.on("enter-html-full-screen", () => {
-    console.log("[Electron] HTML element entered fullscreen (video player only)");
-    // Explicitly ensure the window itself is NOT in fullscreen mode
-    if (mainWindow && mainWindow.isFullScreen()) {
-      console.log("[Electron] Exiting window fullscreen to allow only HTML fullscreen");
-      mainWindow.setFullScreen(false);
-    }
-  });
-
-  mainWindow.webContents.on("leave-html-full-screen", () => {
-    console.log("[Electron] HTML element left fullscreen (video player exited)");
-    // Keep window in normal mode
-  });
+  // Removed: DOM fullscreen interceptors - now allowing video player only fullscreen
 
   mainWindow.on("closed", () => {
     // Clean up recording check interval
