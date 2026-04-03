@@ -11,7 +11,6 @@ import {
 } from "react";
 import {
   ArrowLeft,
-  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -238,10 +237,10 @@ const getWatermarkConfig = (
   const displayText = showId ? `${username} (ID: ${userId})` : username;
   return {
     text: displayText,
-    fontSize: 12,
-    color: "rgba(255, 255, 255, 0.5)",
-    opacity: 0.5,
-    interval: 100,
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.6)",
+    opacity: 0.6,
+    interval: 120,
   };
 };
 
@@ -1026,15 +1025,22 @@ const DatabaseVideoPlayer = forwardRef<
       )}
       {watermarkText && (
         <div className="pointer-events-none absolute inset-0 z-20 select-none">
-          {[16, 34, 52, 70].map((top, idx) => (
+          {[
+            { top: 16, left: 8, angle: -20 },
+            { top: 34, left: 54, angle: -18 },
+            { top: 50, left: 12, angle: -20 },
+            { top: 66, left: 58, angle: -18 },
+            { top: 82, left: 18, angle: -20 },
+          ].map((wm, idx) => (
             <span
-              key={top}
-              className="absolute text-[10px] md:text-[11px] text-white/38 font-medium tracking-[0.08em] uppercase"
+              key={`wm-${idx}`}
+              className="absolute text-[10px] md:text-[11px] text-white/35 font-semibold tracking-[0.12em] uppercase"
               style={{
-                top: `${top}%`,
-                left: `${idx % 2 === 0 ? 8 : 55}%`,
-                transform: "translate(-2%, -50%) rotate(-20deg)",
-                textShadow: "0 1px 1px rgba(0,0,0,0.45)",
+                top: `${wm.top}%`,
+                left: `${wm.left}%`,
+                transform: `translate(-2%, -50%) rotate(${wm.angle}deg)`,
+                textShadow: "0 1px 2px rgba(0,0,0,0.55)",
+                letterSpacing: "0.08em",
               }}
             >
               {watermarkText}
@@ -1466,6 +1472,39 @@ function LearningPageContent() {
     return dayLabel.trim();
   };
 
+  const sanitizeSectionTitle = (title: string): string =>
+    title
+      .replace(/\(\s*text\s*(?:[-=]*>|→)\s*text\s*\)/gi, "")
+      .replace(/\btext\s*(?:[-=]*>|→)\s*text\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+  const getToolUrlFromTitle = (value: string): string | null => {
+    const title = value.toLowerCase();
+    if (title.includes("chatgpt")) return "https://chatgpt.com";
+    if (title.includes("gemini")) return "https://gemini.google.com";
+    if (title.includes("perplexity")) return "https://www.perplexity.ai";
+    if (title.includes("claude")) return "https://claude.ai";
+    if (title.includes("copilot")) return "https://copilot.microsoft.com";
+    return null;
+  };
+
+  const currentToolUrl = useMemo(() => {
+    const fromLesson = getToolUrlFromTitle(
+      `${currentLesson?.title || ""} ${currentLesson?.description || ""}`,
+    );
+    if (fromLesson) return fromLesson;
+
+    const activeSection = curriculum.find(
+      (section) =>
+        section.items.some((item) => item.id === currentLesson?.id) ||
+        section.id === activeDemoQuizSectionId,
+    );
+    if (!activeSection) return null;
+
+    return getToolUrlFromTitle(activeSection.title);
+  }, [activeDemoQuizSectionId, currentLesson?.description, currentLesson?.id, currentLesson?.title, curriculum]);
+
   const handleOpenDemoQuiz = (section: CurriculumSection) => {
     setActiveDemoQuizSectionId(section.id);
     setCurrentLesson({
@@ -1504,6 +1543,43 @@ function LearningPageContent() {
       videoUrl: null,
       objectives: ["Demo quiz flow validation"],
       orderIndex: 0,
+    });
+  };
+
+  const getSectionQuizSourceItem = (
+    section: CurriculumSection,
+  ): LessonItem | null => {
+    const explicitQuiz = section.items.find((item) => item.type === "quiz");
+    if (explicitQuiz) return explicitQuiz;
+
+    const contentQuizItem = section.items.find(
+      (item) => parseQuizQuestions(item.content || null).length > 0,
+    );
+    return contentQuizItem || null;
+  };
+
+  const handleOpenSectionQuiz = (
+    section: CurriculumSection,
+    sourceItem: LessonItem | null,
+  ) => {
+    if (!sourceItem) {
+      handleOpenDemoQuiz(section);
+      return;
+    }
+
+    if (sourceItem.type === "quiz") {
+      handleLessonClick(sourceItem);
+      return;
+    }
+
+    setActiveDemoQuizSectionId(section.id);
+    setCurrentLesson({
+      ...sourceItem,
+      type: "quiz",
+      title: `${normalizeDayLabel(section.day)} Quiz`,
+      duration: sourceItem.duration || "8 min",
+      videoUrl: null,
+      unifiedVideoUrl: null,
     });
   };
 
@@ -1850,14 +1926,14 @@ function LearningPageContent() {
                                 dayLocked ? "text-slate-400" : "text-indigo-500"
                               }`}
                             >
-                              {section.day}
+                              {normalizeDayLabel(section.day)}
                             </span>
                             <span
                               className={`text-xs font-semibold mt-0.5 ${
                                 dayLocked ? "text-slate-500" : "text-slate-800"
                               }`}
                             >
-                              {section.title}
+                              {sanitizeSectionTitle(section.title)}
                             </span>
                           </div>
                           {dayLocked ? (
@@ -1952,24 +2028,21 @@ function LearningPageContent() {
                                   );
                                 })}
                                 {(() => {
-                                  const quizItem =
-                                    section.items.find((item) => item.type === "quiz") || null;
+                                  const quizItem = getSectionQuizSourceItem(section);
                                   const quizLocked = quizItem
                                     ? isLessonLocked(quizItem, sectionIndex)
-                                    : true;
+                                    : dayLocked;
                                   const isDemoQuiz = !quizItem;
-                                  const canOpenQuiz = quizItem ? !quizLocked : !dayLocked;
+                                  const canOpenQuiz = !quizLocked;
                                   const isQuizActive = quizItem
-                                    ? quizItem.active
+                                    ? quizItem.active || activeDemoQuizSectionId === section.id
                                     : activeDemoQuizSectionId === section.id;
 
                                   return (
                                     <div
                                       onClick={() =>
                                         canOpenQuiz &&
-                                        (quizItem
-                                          ? handleLessonClick(quizItem)
-                                          : handleOpenDemoQuiz(section))
+                                        handleOpenSectionQuiz(section, quizItem)
                                       }
                                       className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border transition-all ${
                                         canOpenQuiz
@@ -1993,13 +2066,21 @@ function LearningPageContent() {
                                       </div>
                                       <div className="min-w-0">
                                         <span className="text-xs font-semibold block leading-tight text-orange-800">
-                                          {quizItem?.title ||
-                                            `${normalizeDayLabel(section.day)} Quiz`}
+                                          {quizItem?.type === "quiz"
+                                            ? quizItem.title
+                                            : quizItem
+                                            ? `${normalizeDayLabel(section.day)} Quiz`
+                                            :
+                                            `${normalizeDayLabel(
+                                              section.day,
+                                            )} Quiz`}
                                         </span>
                                         <span className="text-[10px] font-medium flex items-center gap-1 mt-1 text-orange-600">
                                           <Clock className="w-3 h-3" />{" "}
                                           {quizItem?.duration ||
-                                            (isDemoQuiz ? "Demo quiz preview" : "Day-wise quiz")}
+                                            (isDemoQuiz
+                                              ? "Demo quiz preview"
+                                              : "Quiz from lesson")}
                                         </span>
                                       </div>
                                     </div>
@@ -2016,7 +2097,11 @@ function LearningPageContent() {
 
                 <div className="p-4 border-t border-slate-100 shrink-0">
                   <button
-                    onClick={() => window.open("https://chatgpt.com", "_blank")}
+                    onClick={() =>
+                      currentToolUrl &&
+                      window.open(currentToolUrl, "_blank", "noopener,noreferrer")
+                    }
+                    disabled={!currentToolUrl}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium transition-all group"
                   >
                     <Sparkles className="w-4 h-4 text-indigo-500 group-hover:rotate-12 transition-transform" />
@@ -2220,36 +2305,32 @@ function LearningPageContent() {
               </p>
             )}
 
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <BookOpen className="w-4 h-4 text-indigo-500" />
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
-                  Overview
-                </h3>
+            {!isDemoQuizLesson && (
+              <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm">
+                <p className="text-slate-600 leading-relaxed mb-5">
+                  {currentLesson?.description ||
+                    currentLesson?.content ||
+                    "No description available."}
+                </p>
+                {currentLesson?.objectives &&
+                  currentLesson.objectives.length > 0 && (
+                    <div className="bg-indigo-50/60 rounded-xl p-5 border border-indigo-100">
+                      <h4 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                        <Target className="w-4 h-4 text-indigo-600" />
+                        Learning Objectives
+                      </h4>
+                      <ul className="space-y-3 text-sm text-indigo-800/80">
+                        {currentLesson.objectives.map((objective, index) => (
+                          <li key={index} className="flex items-start gap-2.5">
+                            <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                            {objective}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
               </div>
-              <p className="text-slate-600 leading-relaxed mb-5">
-                {currentLesson?.description ||
-                  currentLesson?.content ||
-                  "No description available."}
-              </p>
-              {currentLesson?.objectives &&
-                currentLesson.objectives.length > 0 && (
-                  <div className="bg-indigo-50/60 rounded-xl p-5 border border-indigo-100">
-                    <h4 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                      <Target className="w-4 h-4 text-indigo-600" />
-                      Learning Objectives
-                    </h4>
-                    <ul className="space-y-3 text-sm text-indigo-800/80">
-                      {currentLesson.objectives.map((objective, index) => (
-                        <li key={index} className="flex items-start gap-2.5">
-                          <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
-                          {objective}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-            </div>
+            )}
           </div>
         </main>
       </div>

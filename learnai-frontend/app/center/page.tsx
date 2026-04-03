@@ -279,10 +279,10 @@ export default function CenterAdminDashboardPage() {
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
                       Courses
                     </th>
-                    <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
+                    <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500 text-center">
                       Progress
                     </th>
-                    <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
+                    <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500 text-center">
                       Status
                     </th>
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
@@ -316,7 +316,7 @@ export default function CenterAdminDashboardPage() {
                         <span className="text-xs text-slate-400 ml-1">courses</span>
                       </td>
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center gap-2">
                           <div className="w-16 h-2 bg-slate-200 rounded-full overflow-hidden">
                             <div 
                               className={`h-full rounded-full ${
@@ -331,7 +331,7 @@ export default function CenterAdminDashboardPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-5 py-3 text-center">
                         {student.avgProgress >= 100 ? (
                           <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded-full">
                             Completed

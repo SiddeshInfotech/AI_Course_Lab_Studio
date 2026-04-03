@@ -116,6 +116,20 @@ interface ChunkedUploadState {
   error?: string;
 }
 
+interface UploadQuizQuestion {
+  question: string;
+  options: string[];
+  answerIndex: number;
+  explanation: string;
+}
+
+const createEmptyUploadQuizQuestion = (): UploadQuizQuestion => ({
+  question: "",
+  options: ["", "", "", ""],
+  answerIndex: 0,
+  explanation: "",
+});
+
 const VIDEO_TYPES = [
   { value: "all", label: "All Videos", color: "bg-gray-100 text-gray-800" },
   { value: "uploaded", label: "Uploaded", color: "bg-blue-100 text-blue-800" },
@@ -259,6 +273,11 @@ export default function OptimizedAdminVideoManagement() {
   const [uploadLanguage, setUploadLanguage] = useState<"english" | "hindi" | "marathi">("english");
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [attachQuizOnUpload, setAttachQuizOnUpload] = useState(false);
+  const [setLessonAsQuizType, setSetLessonAsQuizType] = useState(false);
+  const [uploadQuizQuestions, setUploadQuizQuestions] = useState<
+    UploadQuizQuestion[]
+  >([createEmptyUploadQuizQuestion()]);
 
   // Chunked upload state
   const [chunkedUpload, setChunkedUpload] = useState<ChunkedUploadState>({
@@ -489,6 +508,39 @@ export default function OptimizedAdminVideoManagement() {
     }
   }, [externalCourse, loadLessons]);
 
+  const buildUploadQuizPayload = useCallback(() => {
+    if (!attachQuizOnUpload) return null;
+
+    const normalizedQuestions = uploadQuizQuestions
+      .map((q) => {
+        const question = q.question.trim();
+        const options = q.options
+          .map((option) => option.trim())
+          .filter((option) => option.length > 0);
+        if (!question || options.length < 2) return null;
+        const safeAnswerIndex = Math.min(Math.max(q.answerIndex, 0), options.length - 1);
+        return {
+          question,
+          options,
+          answerIndex: safeAnswerIndex,
+          explanation: q.explanation.trim() || undefined,
+        };
+      })
+      .filter(Boolean);
+
+    if (!normalizedQuestions.length) {
+      throw new Error("Add at least one valid quiz question with 2 options.");
+    }
+
+    return normalizedQuestions;
+  }, [attachQuizOnUpload, uploadQuizQuestions]);
+
+  const resetQuizBuilder = useCallback(() => {
+    setAttachQuizOnUpload(false);
+    setSetLessonAsQuizType(false);
+    setUploadQuizQuestions([createEmptyUploadQuizQuestion()]);
+  }, []);
+
   // Reset states when closing modals
   const resetUploadStates = useCallback(() => {
     setUploadFile(null);
@@ -498,6 +550,7 @@ export default function OptimizedAdminVideoManagement() {
     setUploadLanguage("english");
     setReplaceExisting(false);
     setUploading(false);
+    resetQuizBuilder();
     setChunkedUpload({
       sessionId: null,
       filename: "",
@@ -506,7 +559,7 @@ export default function OptimizedAdminVideoManagement() {
       progress: 0,
       status: 'idle',
     });
-  }, []);
+  }, [resetQuizBuilder]);
 
   const resetExternalStates = useCallback(() => {
     setExternalUrl("");
@@ -587,6 +640,48 @@ export default function OptimizedAdminVideoManagement() {
     }
   }, [uploadCourse, uploadLesson, uploadTitle, replaceExisting]);
 
+  const updateUploadQuizQuestion = (
+    index: number,
+    field: "question" | "explanation",
+    value: string,
+  ) => {
+    setUploadQuizQuestions((prev) =>
+      prev.map((q, i) => (i === index ? { ...q, [field]: value } : q)),
+    );
+  };
+
+  const updateUploadQuizOption = (
+    questionIndex: number,
+    optionIndex: number,
+    value: string,
+  ) => {
+    setUploadQuizQuestions((prev) =>
+      prev.map((q, i) => {
+        if (i !== questionIndex) return q;
+        const options = [...q.options];
+        options[optionIndex] = value;
+        return { ...q, options };
+      }),
+    );
+  };
+
+  const updateUploadQuizAnswerIndex = (questionIndex: number, answerIndex: number) => {
+    setUploadQuizQuestions((prev) =>
+      prev.map((q, i) => (i === questionIndex ? { ...q, answerIndex } : q)),
+    );
+  };
+
+  const addUploadQuizQuestion = () => {
+    setUploadQuizQuestions((prev) => [...prev, createEmptyUploadQuizQuestion()]);
+  };
+
+  const removeUploadQuizQuestion = (index: number) => {
+    setUploadQuizQuestions((prev) => {
+      if (prev.length === 1) return [createEmptyUploadQuizQuestion()];
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   // Upload handlers - enhanced for chunked upload
   const handleUpload = async () => {
     if (!uploadFile) return;
@@ -620,7 +715,7 @@ export default function OptimizedAdminVideoManagement() {
           throw new Error(errorData.message || "Failed to upload video");
         }
 
-        const result = await response.json();
+        await response.json();
         alert(
           `${uploadLanguage.charAt(0).toUpperCase() + uploadLanguage.slice(1)} video uploaded successfully!\n\n` +
           `Lesson: ${lessons.find(l => l.id === uploadLesson)?.title || 'Unknown'}\n` +
@@ -917,7 +1012,10 @@ export default function OptimizedAdminVideoManagement() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setActiveModal("unified")}
+            onClick={() => {
+              resetQuizBuilder();
+              setActiveModal("unified");
+            }}
             className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors flex items-center gap-2"
           >
             <Languages className="w-4 h-4" />
@@ -1664,7 +1762,10 @@ export default function OptimizedAdminVideoManagement() {
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Unified Video Upload</h3>
               <button 
-                onClick={() => { setActiveModal(null); }}
+                onClick={() => {
+                  setActiveModal(null);
+                  resetQuizBuilder();
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
@@ -1769,6 +1870,110 @@ export default function OptimizedAdminVideoManagement() {
                 </div>
               )}
 
+              {unifiedLesson && (
+                <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="attachQuizOnUpload"
+                      checked={attachQuizOnUpload}
+                      onChange={(e) => setAttachQuizOnUpload(e.target.checked)}
+                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <label htmlFor="attachQuizOnUpload" className="text-sm font-medium text-gray-800">
+                      Add quiz with unified video
+                    </label>
+                  </div>
+
+                  {attachQuizOnUpload && (
+                    <div className="space-y-3">
+                      {uploadQuizQuestions.map((question, questionIndex) => (
+                        <div key={questionIndex} className="rounded-md border border-purple-100 bg-white p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Question {questionIndex + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeUploadQuizQuestion(questionIndex)}
+                              className="text-xs text-red-600 hover:text-red-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={question.question}
+                            onChange={(e) =>
+                              updateUploadQuizQuestion(questionIndex, "question", e.target.value)
+                            }
+                            placeholder="Enter quiz question"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                          {question.options.map((option, optionIndex) => (
+                            <div key={`${questionIndex}-${optionIndex}`} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={`correct-answer-${questionIndex}`}
+                                checked={question.answerIndex === optionIndex}
+                                onChange={() =>
+                                  updateUploadQuizAnswerIndex(questionIndex, optionIndex)
+                                }
+                                className="text-purple-600 focus:ring-purple-500"
+                              />
+                              <input
+                                type="text"
+                                value={option}
+                                onChange={(e) =>
+                                  updateUploadQuizOption(
+                                    questionIndex,
+                                    optionIndex,
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder={`Option ${optionIndex + 1}`}
+                                className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                            </div>
+                          ))}
+                          <input
+                            type="text"
+                            value={question.explanation}
+                            onChange={(e) =>
+                              updateUploadQuizQuestion(questionIndex, "explanation", e.target.value)
+                            }
+                            placeholder="Explanation (optional)"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={addUploadQuizQuestion}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-purple-700 hover:text-purple-800"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Question
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="setLessonAsQuizType"
+                          checked={setLessonAsQuizType}
+                          onChange={(e) => setSetLessonAsQuizType(e.target.checked)}
+                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <label htmlFor="setLessonAsQuizType" className="text-xs text-gray-700">
+                          Set this lesson type to Quiz
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {unifiedUploading && (
                 <div className="bg-purple-50 rounded-lg p-4">
                   <div className="flex items-center gap-3">
@@ -1781,7 +1986,10 @@ export default function OptimizedAdminVideoManagement() {
 
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
               <button
-                onClick={() => { setActiveModal(null); }}
+                onClick={() => {
+                  setActiveModal(null);
+                  resetQuizBuilder();
+                }}
                 className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
               >
                 Cancel
@@ -1794,6 +2002,7 @@ export default function OptimizedAdminVideoManagement() {
                   }
                   setUnifiedUploading(true);
                   try {
+                    const quizPayload = buildUploadQuizPayload();
                     const formData = new FormData();
                     formData.append("video", unifiedVideoFile);
                     if (unifiedAudioEnglish) formData.append("audioEnglish", unifiedAudioEnglish);
@@ -1811,8 +2020,16 @@ export default function OptimizedAdminVideoManagement() {
 
                     if (!response.ok) throw new Error("Upload failed");
 
+                    if (quizPayload) {
+                      await api.courses.updateLesson(Number(unifiedCourse), Number(unifiedLesson), {
+                        content: JSON.stringify({ questions: quizPayload }),
+                        ...(setLessonAsQuizType ? { type: "quiz" } : {}),
+                      });
+                    }
+
                     alert("Unified video uploaded successfully!");
                     setActiveModal(null);
+                    resetQuizBuilder();
                     loadVideos(currentPage);
                   } catch (err) {
                     alert(err instanceof Error ? err.message : "Upload failed");
