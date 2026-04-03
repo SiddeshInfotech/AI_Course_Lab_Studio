@@ -145,7 +145,10 @@ const parseQuizQuestions = (content: string | null): QuizQuestion[] => {
 
         return {
           id: q?.id ?? idx + 1,
-          question: typeof q?.question === "string" ? q.question : `Question ${idx + 1}`,
+          question:
+            typeof q?.question === "string"
+              ? q.question
+              : `Question ${idx + 1}`,
           options,
           answerIndex,
           explanation:
@@ -655,7 +658,10 @@ const DatabaseVideoPlayer = forwardRef<
         maxTimeReachedRef.current = video.currentTime;
       }
 
-      const thresholdSeconds = Math.max(video.duration - 40, video.duration * 0.85);
+      const thresholdSeconds = Math.max(
+        video.duration - 40,
+        video.duration * 0.85,
+      );
       if (
         video.duration > 0 &&
         video.currentTime >= thresholdSeconds &&
@@ -1229,8 +1235,8 @@ function LearningPageContent() {
     LessonVideoPlayerState
   >(DEFAULT_LESSON_VIDEO_PLAYER_STATE);
   const lessonVideoPlayerRef = useRef<LessonVideoPlayerHandle>(null);
-  const [watermarkTime, setWatermarkTime] = useState(
-    () => new Date().toLocaleString(),
+  const [watermarkTime, setWatermarkTime] = useState(() =>
+    new Date().toLocaleString(),
   );
   const [canMarkComplete, setCanMarkComplete] = useState(true);
 
@@ -1271,6 +1277,59 @@ function LearningPageContent() {
   useEffect(() => {
     setCanMarkComplete(!isTrackableVideo(currentLesson?.videoUrl));
   }, [currentLesson?.id, currentLesson?.videoUrl]);
+
+  // Auto-complete video lessons when watch threshold is met
+  useEffect(() => {
+    const autoCompleteVideo = async () => {
+      if (
+        canMarkComplete &&
+        isTrackableVideo(currentLesson?.videoUrl) &&
+        !currentLesson?.completed &&
+        !isDemoQuizLesson &&
+        courseId
+      ) {
+        console.log(
+          "[Auto-Complete] Video threshold met, marking as complete...",
+        );
+        try {
+          await api.learning.completeLesson(currentLesson!.id);
+          console.log("[Auto-Complete] Lesson marked complete");
+
+          const data = await api.learning.getCurriculum(courseId);
+          const allLessons = data.curriculum.flatMap(
+            (section: any) => section.items,
+          );
+          const currentIndex = allLessons.findIndex(
+            (l: any) => l.id === currentLesson!.id,
+          );
+
+          setCurriculum(data.curriculum);
+          setProgress(data.progress);
+
+          if (currentIndex >= 0) {
+            const updatedCurrentLesson = {
+              ...allLessons[currentIndex],
+              completed: true,
+            } as CurrentLesson;
+            setCurrentLesson(updatedCurrentLesson);
+            console.log(
+              "[Auto-Complete] Current lesson updated with completed status",
+            );
+          }
+        } catch (error) {
+          if (error instanceof ApiResponseError && error.status === 401) {
+            return;
+          }
+          console.error(
+            "[Auto-Complete] Failed to auto-complete lesson:",
+            error,
+          );
+        }
+      }
+    };
+
+    autoCompleteVideo();
+  }, [canMarkComplete]);
 
   useEffect(() => {
     setSelectedAnswers({});
@@ -1369,7 +1428,25 @@ function LearningPageContent() {
   const isDayCompleted = (dayIndex: number): boolean => {
     if (dayIndex < 0 || !curriculum[dayIndex]) return false;
     const dayLessons = curriculum[dayIndex].items;
-    return dayLessons.length > 0 && dayLessons.every((item) => item.completed);
+    const allCompleted =
+      dayLessons.length > 0 && dayLessons.every((item) => item.completed);
+    // Debug logging
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname.includes("/learning")
+    ) {
+      console.log(
+        "[isDayCompleted] dayIndex:",
+        dayIndex,
+        "dayLessons:",
+        dayLessons.length,
+        "allCompleted:",
+        allCompleted,
+        "completed statuses:",
+        dayLessons.map((l) => ({ title: l.title, completed: l.completed })),
+      );
+    }
+    return allCompleted;
   };
 
   const getCurrentDayIndex = (): number => {
@@ -1526,27 +1603,34 @@ function LearningPageContent() {
             </div>
             {quizScore && (
               <div className="text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-3 py-1 rounded-lg">
-                Score: {quizScore.correct}/{quizScore.total} ({quizScore.percentage}%)
+                Score: {quizScore.correct}/{quizScore.total} (
+                {quizScore.percentage}%)
               </div>
             )}
           </div>
 
           {quizQuestions.length === 0 ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm">
-              No quiz questions found for this lesson. Add quiz JSON in lesson content.
+              No quiz questions found for this lesson. Add quiz JSON in lesson
+              content.
             </div>
           ) : (
             <div className="space-y-5">
               {quizQuestions.map((q, qIndex) => (
-                <div key={q.id} className="rounded-xl border border-slate-200 p-4 bg-slate-50/60">
+                <div
+                  key={q.id}
+                  className="rounded-xl border border-slate-200 p-4 bg-slate-50/60"
+                >
                   <p className="text-sm font-semibold text-slate-800 mb-3">
                     {qIndex + 1}. {q.question}
                   </p>
                   <div className="space-y-2">
                     {q.options.map((option, oIndex) => {
                       const isSelected = selectedAnswers[qIndex] === oIndex;
-                      const isCorrect = quizSubmitted && q.answerIndex === oIndex;
-                      const isWrongSelected = quizSubmitted && isSelected && q.answerIndex !== oIndex;
+                      const isCorrect =
+                        quizSubmitted && q.answerIndex === oIndex;
+                      const isWrongSelected =
+                        quizSubmitted && isSelected && q.answerIndex !== oIndex;
 
                       return (
                         <button
@@ -1554,11 +1638,16 @@ function LearningPageContent() {
                           onClick={() => handleSelectQuizOption(qIndex, oIndex)}
                           disabled={quizSubmitted}
                           className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                            isCorrect ? "bg-emerald-50 border-emerald-300 text-emerald-900"
-                            : isWrongSelected ? "bg-red-50 border-red-300 text-red-900"
-                            : isSelected ? "bg-indigo-50 border-indigo-300 text-indigo-900"
-                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                          } ${quizSubmitted ? "cursor-default" : "cursor-pointer"}`}
+                            isCorrect
+                              ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                              : isWrongSelected
+                              ? "bg-red-50 border-red-300 text-red-900"
+                              : isSelected
+                              ? "bg-indigo-50 border-indigo-300 text-indigo-900"
+                              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                          } ${
+                            quizSubmitted ? "cursor-default" : "cursor-pointer"
+                          }`}
                         >
                           {option}
                         </button>
@@ -1566,7 +1655,9 @@ function LearningPageContent() {
                     })}
                   </div>
                   {quizSubmitted && q.explanation && (
-                    <p className="mt-3 text-xs text-slate-600">{q.explanation}</p>
+                    <p className="mt-3 text-xs text-slate-600">
+                      {q.explanation}
+                    </p>
                   )}
                 </div>
               ))}
@@ -1575,7 +1666,9 @@ function LearningPageContent() {
                 <div className="flex justify-end">
                   <button
                     onClick={handleSubmitQuiz}
-                    disabled={Object.keys(selectedAnswers).length < quizQuestions.length}
+                    disabled={
+                      Object.keys(selectedAnswers).length < quizQuestions.length
+                    }
                     className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
                   >
                     Submit Quiz
@@ -1592,7 +1685,10 @@ function LearningPageContent() {
       return (
         <div
           className="w-full aspect-video bg-slate-900 rounded-2xl shadow-xl relative overflow-hidden border border-slate-800 mb-6"
-          onContextMenu={(e) => { e.preventDefault(); return false; }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            return false;
+          }}
         >
           {isControllableCurrentVideo ? (
             <DatabaseVideoPlayer
@@ -1602,10 +1698,19 @@ function LearningPageContent() {
               className="w-full h-full"
               onStateChange={setLessonVideoPlayerState}
               onWatchThresholdMet={setCanMarkComplete}
-              watermarkText={`${user?.email || user?.username || "Protected"} | ${watermarkTime}`}
-              audioTracks={currentAudioTracks ? (typeof currentAudioTracks === "string" ? JSON.parse(currentAudioTracks) : currentAudioTracks) : []}
+              watermarkText={`${
+                user?.email || user?.username || "Protected"
+              } | ${watermarkTime}`}
+              audioTracks={
+                currentAudioTracks
+                  ? typeof currentAudioTracks === "string"
+                    ? JSON.parse(currentAudioTracks)
+                    : currentAudioTracks
+                  : []
+              }
             />
-          ) : currentVideoUrl?.includes("youtube.com") || currentVideoUrl?.includes("youtu.be") ? (
+          ) : currentVideoUrl?.includes("youtube.com") ||
+            currentVideoUrl?.includes("youtu.be") ? (
             <YouTubeVideoPlayer
               videoUrl={currentVideoUrl || ""}
               title={currentLesson?.title || ""}
@@ -1621,7 +1726,14 @@ function LearningPageContent() {
               controlsList="nodownload noplaybackrate"
             />
           )}
-          <canvas id="screenshotCanvas" className="hidden" onContextMenu={(e) => { e.preventDefault(); return false; }} />
+          <canvas
+            id="screenshotCanvas"
+            className="hidden"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              return false;
+            }}
+          />
         </div>
       );
     }
@@ -1629,7 +1741,9 @@ function LearningPageContent() {
     return (
       <div className="w-full aspect-video bg-slate-200 rounded-2xl shadow-xl border border-slate-300 mb-6 flex flex-col items-center justify-center gap-3">
         <AlertCircle className="w-12 h-12 text-slate-400" />
-        <p className="text-slate-600 font-medium">No video available for this lesson</p>
+        <p className="text-slate-600 font-medium">
+          No video available for this lesson
+        </p>
       </div>
     );
   };
@@ -1649,26 +1763,78 @@ function LearningPageContent() {
     if (isDemoQuizLesson) return;
 
     try {
+      console.log("[Mark Complete] Starting...");
+
       await api.learning.completeLesson(currentLesson.id);
+      console.log("[Mark Complete] API call successful");
 
       const data = await api.learning.getCurriculum(courseId);
+      console.log(
+        "[Mark Complete] Curriculum fetched, days:",
+        data.curriculum.length,
+      );
+
+      const allLessons = data.curriculum.flatMap(
+        (section: any) => section.items,
+      );
+      const currentIndex = allLessons.findIndex(
+        (l: any) => l.id === currentLesson.id,
+      );
+      console.log("[Mark Complete] Current lesson index:", currentIndex);
+      if (currentIndex >= 0) {
+        console.log(
+          "[Mark Complete] Current lesson completed status from API:",
+          allLessons[currentIndex].completed,
+        );
+      }
+
       setCurriculum(data.curriculum);
       setProgress(data.progress);
+      console.log("[Mark Complete] Curriculum state updated");
 
-      const allLessons = curriculum.flatMap((section) => section.items);
-      const currentIndex = allLessons.findIndex(
-        (l) => l.id === currentLesson.id,
-      );
-      if (currentIndex >= 0 && currentIndex < allLessons.length - 1) {
-        const nextLesson = allLessons[currentIndex + 1];
-        setCurrentLesson(nextLesson as CurrentLesson);
-        await api.learning.setCurrentLesson(courseId, nextLesson.orderIndex);
+      if (currentIndex >= 0) {
+        const updatedCurrentLesson = {
+          ...allLessons[currentIndex],
+          completed: true,
+        } as CurrentLesson;
+        setCurrentLesson(updatedCurrentLesson);
+        console.log(
+          "[Mark Complete] Current lesson state updated with completed:",
+          updatedCurrentLesson.completed,
+        );
       }
     } catch (error) {
       if (error instanceof ApiResponseError && error.status === 401) {
         return;
       }
       console.error("Failed to mark lesson complete:", error);
+    }
+  };
+
+  const handleContinue = async () => {
+    if (!currentLesson || !courseId) return;
+
+    const allLessons = curriculum.flatMap((section: any) => section.items);
+    const currentIndex = allLessons.findIndex(
+      (l: any) => l.id === currentLesson.id,
+    );
+
+    console.log("[Continue] Current lesson index:", currentIndex);
+
+    if (currentIndex >= 0 && currentIndex < allLessons.length - 1) {
+      const nextLesson = allLessons[currentIndex + 1];
+      console.log(
+        "[Continue] Navigating to next lesson:",
+        nextLesson?.title,
+        "completed:",
+        nextLesson?.completed,
+      );
+      if (nextLesson) {
+        setCurrentLesson(nextLesson as CurrentLesson);
+        await api.learning.setCurrentLesson(courseId, nextLesson.orderIndex);
+      }
+    } else {
+      console.log("[Continue] No next lesson or last lesson");
     }
   };
 
@@ -1953,12 +2119,16 @@ function LearningPageContent() {
                                 })}
                                 {(() => {
                                   const quizItem =
-                                    section.items.find((item) => item.type === "quiz") || null;
+                                    section.items.find(
+                                      (item) => item.type === "quiz",
+                                    ) || null;
                                   const quizLocked = quizItem
                                     ? isLessonLocked(quizItem, sectionIndex)
                                     : true;
                                   const isDemoQuiz = !quizItem;
-                                  const canOpenQuiz = quizItem ? !quizLocked : !dayLocked;
+                                  const canOpenQuiz = quizItem
+                                    ? !quizLocked
+                                    : !dayLocked;
                                   const isQuizActive = quizItem
                                     ? quizItem.active
                                     : activeDemoQuizSectionId === section.id;
@@ -1994,12 +2164,16 @@ function LearningPageContent() {
                                       <div className="min-w-0">
                                         <span className="text-xs font-semibold block leading-tight text-orange-800">
                                           {quizItem?.title ||
-                                            `${normalizeDayLabel(section.day)} Quiz`}
+                                            `${normalizeDayLabel(
+                                              section.day,
+                                            )} Quiz`}
                                         </span>
                                         <span className="text-[10px] font-medium flex items-center gap-1 mt-1 text-orange-600">
                                           <Clock className="w-3 h-3" />{" "}
                                           {quizItem?.duration ||
-                                            (isDemoQuiz ? "Demo quiz preview" : "Day-wise quiz")}
+                                            (isDemoQuiz
+                                              ? "Demo quiz preview"
+                                              : "Day-wise quiz")}
                                         </span>
                                       </div>
                                     </div>
@@ -2167,44 +2341,56 @@ function LearningPageContent() {
                       .findIndex((l) => l.id === currentLesson?.id) ===
                     curriculum.flatMap((section) => section.items).length - 1;
 
-                  const isNextDisabled = isLastLessonInDay
-                    ? !isCurrentDayCompleted
-                    : !canCompleteCurrentLesson && isControllableCurrentVideo;
+                  // Button is disabled if: we're at the last lesson OR (it's the last lesson in day and day isn't completed AND lesson isn't completed)
+                  const isNextDisabled: boolean =
+                    isLastLesson ||
+                    (isLastLessonInDay &&
+                      !isCurrentDayCompleted &&
+                      !currentLesson?.completed) ||
+                    (!currentLesson?.completed &&
+                      isControllableCurrentVideo &&
+                      !canCompleteCurrentLesson) ||
+                    false;
 
-                  const buttonTitle = currentLesson?.completed
+                  const buttonTitle = isLastLesson
+                    ? "You've completed all lessons"
+                    : currentLesson?.completed
                     ? "Continue to next lesson"
                     : isLastLessonInDay && !isCurrentDayCompleted
-                    ? "Complete all lessons in this day to continue"
-                    : isLastLesson
-                    ? "You've completed all lessons"
+                    ? "Complete current lesson to unlock next day"
                     : canCompleteCurrentLesson
                     ? "Mark this lesson as complete and continue"
                     : "Watch till near end of video to unlock";
 
                   return (
                     <button
-                      onClick={handleMarkComplete}
-                      disabled={isNextDisabled || isLastLesson}
+                      onClick={
+                        currentLesson?.completed
+                          ? handleContinue
+                          : handleMarkComplete
+                      }
+                      disabled={isNextDisabled}
                       className="flex justify-center items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-500/25 active:scale-[0.97] shrink-0"
                       title={buttonTitle}
                     >
-                      {currentLesson?.completed ? (
-                        <>
-                          <ChevronRight className="w-4 h-4" />
-                          Continue
-                        </>
-                      ) : isLastLessonInDay && !isCurrentDayCompleted ? (
-                        <>
-                          <Lock className="w-4 h-4" />
-                          Locked
-                        </>
-                      ) : isLastLesson ? (
+                      {isLastLesson ? (
                         <>
                           <CheckCircle2 className="w-4 h-4" />
                           Finished
                         </>
+                      ) : currentLesson?.completed ? (
+                        <>
+                          <ChevronRight className="w-4 h-4" />
+                          Continue
+                        </>
+                      ) : !isCurrentDayCompleted && isLastLessonInDay ? (
+                        <>
+                          <Lock className="w-4 h-4" />
+                          Complete to Unlock
+                        </>
                       ) : (
                         <>
+                          {canCompleteCurrentLesson ? "Mark Complete & " : ""}
                           Next
                           <ChevronRight className="w-4 h-4" />
                         </>

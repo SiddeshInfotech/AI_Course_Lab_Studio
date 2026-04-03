@@ -8,17 +8,18 @@
     "email": "support@learnai.app"
   },
   "private": true,
-  "main": "public/electron/main.ts",
+  "main": "public/electron/main.js",
   "homepage": "./",
   "scripts": {
-    "dev": "concurrently \"npm run next:dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "npm run electron:compile && concurrently \"npm run next:dev\" \"wait-on http://localhost:3000 && electron .\"",
     "next:dev": "next dev",
-    "build": "npm run next:build && npm run electron:build",
+    "build": "npm run electron:compile && npm run next:build && npm run electron:build",
     "next:build": "next build",
+    "electron:compile": "tsc --project tsconfig.electron.json",
     "electron:build": "electron-builder",
     "start": "next start",
     "lint": "eslint .",
-    "clean": "next clean",
+    "clean": "next clean && rm -rf public/electron/*.js",
     "dist": "npm run build && electron-builder --publish=never",
     "dist:publish": "npm run build && electron-builder --publish=always"
   },
@@ -69,6 +70,10 @@
       "out/**/*",
       "node_modules/**/*",
       "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "public/electron/**/*"
     ],
     "win": {
       "target": [

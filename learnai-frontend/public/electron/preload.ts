@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Declare global window type for TypeScript
+declare const window: Window & typeof globalThis;
+
 // Expose only necessary APIs to renderer process
 contextBridge.exposeInMainWorld("electronAPI", {
   getDeviceId: () => ipcRenderer.invoke("get-device-id"),
@@ -21,10 +24,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
 });
 
 // Security: Disable eval
-(window as any).eval = undefined;
+try {
+  (window as any).eval = undefined;
+} catch (e) {
+  // Ignore if eval is not available
+}
 
 // Security: Disable Function constructor
-(window as any).Function = undefined;
+try {
+  (window as any).Function = undefined;
+} catch (e) {
+  // Ignore if Function is not available
+}
 
 // Log if in dev mode
 if (process.env.NODE_ENV === "development") {

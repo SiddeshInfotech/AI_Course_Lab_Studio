@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import path from "path";
+import { fileURLToPath } from "url";
 import isDev from "electron-is-dev";
 import crypto from "crypto";
 import fs from "fs";
@@ -22,10 +23,6 @@ app.commandLine.appendSwitch("disable-extensions");
 // Disable printing
 app.commandLine.appendSwitch("disable-print-preview");
 
-// Prevent screen capture - Critical for content protection
-// **TEMPORARILY DISABLED TO TEST FULLSCREEN** - These might be blocking fullscreen API
-// app.commandLine.appendSwitch("disable-screen-capture");
-// app.commandLine.appendSwitch("disable-desktop-capture");
 // ==================== END SECURITY CONFIG ====================
 
 let mainWindow: BrowserWindow | null = null;
@@ -65,12 +62,57 @@ function getOrCreateDeviceId(): string {
   return deviceId;
 }
 
+// Helper to get the correct preload path based on whether we're in dev or production
+function getPreloadPath(): string {
+  if (isDev) {
+    // In development, use .ts files directly (ts-node will handle it)
+    return path.join(process.cwd(), "public", "electron", "preload.ts");
+  } else {
+    // In production, use compiled .js files
+    return path.join(process.resourcesPath, "public", "electron", "preload.js");
+  }
+}
+
+// Helper to get the correct path for static files
+function getProductionHtmlPath(): string {
+  const isWindows = process.platform === "win32";
+  // Use path.join which handles OS-specific separators
+  let htmlPath = path.join(process.resourcesPath, "public", "electron", "..", "..", ".next", "standalone", "pages", "index.html");
+  
+  // For Windows, ensure the path works with file:// protocol
+  if (isWindows) {
+    // Convert backslashes to forward slashes for file:// protocol
+    htmlPath = htmlPath.replace(/\\/g, "/");
+  }
+  
+  return `file://${htmlPath}`;
+}
+
+// Helper to get icon path
+function getIconPath(): string | undefined {
+  if (isDev) {
+    return undefined;
+  }
+  
+  const isWindows = process.platform === "win32";
+  let iconPath = path.join(process.resourcesPath, "public", "electron", "..", "..", "assets", "icon.png");
+  
+  // For Windows, ensure the path works
+  if (isWindows) {
+    iconPath = iconPath.replace(/\\/g, "/");
+  }
+  
+  return iconPath;
+}
+
 // Create window
 function createWindow() {
-  // Resolve __dirname dynamically - works in both dev and production
-  const resourcesPath = isDev
-    ? path.join(process.cwd(), "public", "electron")
-    : path.join(process.resourcesPath, "public", "electron");
+  const preloadPath = getPreloadPath();
+  const iconPath = getIconPath();
+  
+  console.log("[Electron] Preload path:", preloadPath);
+  console.log("[Electron] Icon path:", iconPath);
+  console.log("[Electron] Platform:", process.platform);
 
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -79,16 +121,14 @@ function createWindow() {
     minHeight: 700,
     fullscreenable: true,
     webPreferences: {
-      preload: path.join(resourcesPath, "preload.ts"),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // Disable sandbox for better compatibility
-      // Enable dev tools in development only
+      sandbox: false,
       devTools: isDev,
-      // Enable fullscreen for video elements
       allowRunningInsecureContent: false,
     },
-    icon: isDev ? undefined : path.join(resourcesPath, "../../assets/icon.png"),
+    icon: iconPath,
   });
 
   // Allow video fullscreen
@@ -98,11 +138,9 @@ function createWindow() {
 
   const startUrl = isDev
     ? "http://localhost:3000"
-    : `file://${path.join(
-        resourcesPath,
-        "../../.next/standalone/pages/index.html",
-      )}`;
+    : getProductionHtmlPath();
 
+  console.log("[Electron] Loading URL:", startUrl);
   mainWindow.loadURL(startUrl);
 
   // Set Content Security Policy headers
@@ -185,12 +223,7 @@ function createWindow() {
         event.preventDefault();
         return;
       }
-
-      // Block Ctrl+D (Windows/Linux DevTools shortcut in some contexts)
-      if (input.control && input.key === "d") {
-        event.preventDefault();
-        return;
-      }
+      // NOTE: Removed Ctrl+D blocking - it's a useful shortcut on Windows
     });
   }
 
@@ -246,7 +279,6 @@ function createWindow() {
     exec(cmd, (error, stdout) => {
       if (stdout && stdout.trim()) {
         console.warn("[Security] Recording software detected:", stdout);
-        // Notify renderer
         mainWindow?.webContents.send("recording-detected", {
           detected: true,
           timestamp: Date.now(),
@@ -267,30 +299,20 @@ function createWindow() {
   mainWindow.on("enter-full-screen", syncRendererFullscreenState);
   mainWindow.on("leave-full-screen", syncRendererFullscreenState);
 
-  // Prevent window fullscreen when HTML element goes fullscreen (video player)
-  // This ensures ONLY the video player goes fullscreen, not the entire Electron window
+  // Handle HTML fullscreen for video player
   mainWindow.webContents.on("enter-html-full-screen", () => {
-    console.log(
-      "[Electron] HTML element entered fullscreen (video player only)",
-    );
-    // Explicitly ensure the window itself is NOT in fullscreen mode
+    console.log("[Electron] HTML element entered fullscreen (video player only)");
     if (mainWindow && mainWindow.isFullScreen()) {
-      console.log(
-        "[Electron] Exiting window fullscreen to allow only HTML fullscreen",
-      );
+      console.log("[Electron] Exiting window fullscreen to allow only HTML fullscreen");
       mainWindow.setFullScreen(false);
     }
   });
 
   mainWindow.webContents.on("leave-html-full-screen", () => {
-    console.log(
-      "[Electron] HTML element left fullscreen (video player exited)",
-    );
-    // Keep window in normal mode
+    console.log("[Electron] HTML element left fullscreen (video player exited)");
   });
 
   mainWindow.on("closed", () => {
-    // Clean up recording check interval
     if (recordingCheckInterval) {
       clearInterval(recordingCheckInterval);
     }
@@ -350,14 +372,12 @@ ipcMain.handle("is-window-fullscreen", () => {
 // Security: Disable navigation to external sites
 app.on("web-contents-created", (event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    // Only allow internal URLs
     if (url.startsWith("http://localhost") || url.startsWith("file://")) {
       return { action: "allow" };
     }
     return { action: "deny" };
   });
 
-  // Prevent execution of downloaded files
   contents.session.setPermissionRequestHandler(
     (webContents, permission, callback) => {
       const allowedPermissions: string[] = ["fullscreen"];
