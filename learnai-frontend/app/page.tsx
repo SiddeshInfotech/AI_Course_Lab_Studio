@@ -5,7 +5,7 @@ import { EyeOff, Eye, ArrowRight, User, Lock, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
-import { api } from "@/lib/api";
+import { ApiResponseError, api } from "@/lib/api";
 
 const CENTER_SESSION_KEY = "centerSession";
 const CENTER_AUTH_STORAGE_KEY = "centerAuth";
@@ -128,19 +128,30 @@ export default function LoginPage() {
       return;
     }
 
-    const result = await login(username, password);
+    try {
+      const result = await login(username, password);
 
-    if (result.success) {
-      if (result.isAdmin) {
-        router.push("/admin");
-      } else {
-        router.push("/welcome");
+      if (result.success) {
+        if (result.isAdmin) {
+          router.push("/admin");
+        } else {
+          router.push("/welcome");
+        }
+        return;
       }
-      return;
-    }
 
-    setError(result.error || "Invalid credentials");
-    setIsLoading(false);
+      setError(result.error || "Invalid credentials");
+    } catch (err) {
+      if (err instanceof ApiResponseError) {
+        setError(err.message || "Login failed. Please try again.");
+      } else if (err instanceof Error) {
+        setError(err.message || "Login failed. Please try again.");
+      } else {
+        setError("Login failed. Please try again.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
