@@ -101,11 +101,11 @@ const getAudioTracks = (lesson) => {
 const getPreferredAudioTrackIndex = (lesson, preferredLanguage) => {
   const tracks = getAudioTracks(lesson);
   if (tracks.length === 0) return 0;
-  
+
   const trackIndex = tracks.findIndex(
     track => track.language === preferredLanguage
   );
-  
+
   return trackIndex >= 0 ? trackIndex : 0;
 };
 
@@ -223,6 +223,8 @@ export const getCourseCurriculum = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
+        completed: currentLesson.lessonProgress.length > 0 && currentLesson.lessonProgress[0].completed,
+        active: true,
         videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
         // Legacy support for language-specific videos
         languages: {
@@ -580,6 +582,8 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
         duration: currentLesson.duration,
         description: currentLesson.description,
         content: currentLesson.content,
+        completed: currentLesson.lessonProgress.length > 0 && currentLesson.lessonProgress[0].completed,
+        active: true,
         videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
         // Legacy support for language-specific videos
         languages: {
