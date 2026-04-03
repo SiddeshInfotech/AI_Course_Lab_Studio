@@ -23,11 +23,11 @@ prisma/migrations/**/migration.sql
 dev.db
 
 # File Storage - CRITICAL: DO NOT COMMIT USER DATA
-uploads/
+
 encrypted-videos/
 minio-data/
 storage/
-public/uploads/
+
 
 # Logs - may contain sensitive debugging info
 *.log
