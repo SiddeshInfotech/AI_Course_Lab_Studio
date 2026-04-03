@@ -270,16 +270,22 @@ function createWindow() {
   // Prevent window fullscreen when HTML element goes fullscreen (video player)
   // This ensures ONLY the video player goes fullscreen, not the entire Electron window
   mainWindow.webContents.on("enter-html-full-screen", () => {
-    console.log("[Electron] HTML element entered fullscreen (video player only)");
+    console.log(
+      "[Electron] HTML element entered fullscreen (video player only)",
+    );
     // Explicitly ensure the window itself is NOT in fullscreen mode
     if (mainWindow && mainWindow.isFullScreen()) {
-      console.log("[Electron] Exiting window fullscreen to allow only HTML fullscreen");
+      console.log(
+        "[Electron] Exiting window fullscreen to allow only HTML fullscreen",
+      );
       mainWindow.setFullScreen(false);
     }
   });
 
   mainWindow.webContents.on("leave-html-full-screen", () => {
-    console.log("[Electron] HTML element left fullscreen (video player exited)");
+    console.log(
+      "[Electron] HTML element left fullscreen (video player exited)",
+    );
     // Keep window in normal mode
   });
 
@@ -354,7 +360,7 @@ app.on("web-contents-created", (event, contents) => {
   // Prevent execution of downloaded files
   contents.session.setPermissionRequestHandler(
     (webContents, permission, callback) => {
-      const allowedPermissions: string[] = ['fullscreen'];
+      const allowedPermissions: string[] = ["fullscreen"];
 
       if (allowedPermissions.includes(permission)) {
         callback(true);
