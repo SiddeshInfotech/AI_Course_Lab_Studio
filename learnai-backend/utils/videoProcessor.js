@@ -8,11 +8,14 @@ import { uploadFile, deleteFile, getSignedUrl, getPublicUrl, getStorageType } fr
 import { getMinioClient, ensureBucket, getMinioConfig } from "../config/minio.js";
 
 let ffmpegAvailable = false;
+let ffmpegPath = null;
 
 try {
     if (ffmpegStatic) {
+        ffmpegPath = ffmpegStatic;
         ffmpeg.setFfmpegPath(ffmpegStatic);
         ffmpegAvailable = true;
+        console.log("FFmpeg path set to:", ffmpegStatic);
     } else {
         console.warn("FFmpeg static not available, using placeholder thumbnails");
         ffmpegAvailable = false;
@@ -35,8 +38,14 @@ const getTempPath = (filename) => {
 };
 
 export const generateVideoThumbnail = async (inputPath, storageKey = null) => {
-    if (!ffmpegAvailable) {
+    if (!ffmpegAvailable || !ffmpegPath) {
         console.warn("FFmpeg not available, using placeholder thumbnail");
+        return createPlaceholderThumbnail();
+    }
+
+    // Check if input file exists
+    if (!existsSync(inputPath)) {
+        console.warn("Input video file not found for thumbnail, using placeholder");
         return createPlaceholderThumbnail();
     }
 
@@ -57,42 +66,47 @@ export const generateVideoThumbnail = async (inputPath, storageKey = null) => {
             }
         }
 
-        ffmpeg(inputForFfmpeg)
-            .screenshots({
-                count: 1,
-                folder: dirname(thumbnailPath),
-                filename: thumbnailFilename,
-                size: "320x180",
-                timemarks: ["00:00:01"],
-            })
-            .on("end", async () => {
-                try {
-                    const thumbnailBuffer = await readFileAsBuffer(thumbnailPath);
+        try {
+            ffmpeg(inputForFfmpeg)
+                .outputOptions(['-ss', '00:00:01', '-vframes', '1', '-s', '320x180'])
+                .output(thumbnailPath)
+                .on("end", async () => {
+                    try {
+                        if (!existsSync(thumbnailPath)) {
+                            resolve(createPlaceholderThumbnail());
+                            return;
+                        }
+                        const thumbnailBuffer = await readFileAsBuffer(thumbnailPath);
 
-                    const thumbnailResult = await uploadFile(
-                        thumbnailBuffer,
-                        thumbnailFilename,
-                        { type: 'thumbnails', contentType: 'image/jpeg' }
-                    );
+                        const thumbnailResult = await uploadFile(
+                            thumbnailBuffer,
+                            thumbnailFilename,
+                            { type: 'thumbnails', contentType: 'image/jpeg' }
+                        );
 
-                    unlinkSync(thumbnailPath);
-                    if (inputForFfmpeg !== inputPath && existsSync(inputForFfmpeg)) {
-                        unlinkSync(inputForFfmpeg);
+                        unlinkSync(thumbnailPath);
+                        if (inputForFfmpeg !== inputPath && existsSync(inputForFfmpeg)) {
+                            unlinkSync(inputForFfmpeg);
+                        }
+
+                        resolve({
+                            storageKey: thumbnailResult.key,
+                            url: thumbnailResult.url
+                        });
+                    } catch (err) {
+                        console.error("Error processing thumbnail:", err);
+                        resolve(createPlaceholderThumbnail());
                     }
-
-                    resolve({
-                        storageKey: thumbnailResult.key,
-                        url: thumbnailResult.url
-                    });
-                } catch (err) {
-                    reject(err);
-                }
-            })
-            .on("error", (err) => {
-                console.error("Thumbnail generation error:", err.message);
-                resolve(createPlaceholderThumbnail());
-            })
-            .run();
+                })
+                .on("error", (err) => {
+                    console.error("Thumbnail generation error:", err.message);
+                    resolve(createPlaceholderThumbnail());
+                })
+                .run();
+        } catch (err) {
+            console.error("FFmpeg execution error:", err);
+            resolve(createPlaceholderThumbnail());
+        }
     });
 };
 
@@ -191,18 +205,34 @@ export const processVideoForStorage = async (fileBuffer, originalName) => {
         const originalSize = fileBuffer.length;
         console.log(`Processing video: ${originalName} (${Math.round(originalSize / (1024 * 1024))}MB)`);
 
+        let compressionSuccess = false;
+        let compressedBuffer = null;
+        let compressedSize = originalSize;
+
         try {
             await compressVideo(tempInputPath, tempOutputPath);
+            if (existsSync(tempOutputPath)) {
+                compressedBuffer = await readFileAsBuffer(tempOutputPath);
+                compressedSize = compressedBuffer.length;
+                compressionSuccess = true;
+            }
         } catch (compressErr) {
             console.warn("Compression failed, using original:", compressErr.message);
+            compressedBuffer = null;
         }
 
-        const compressedBuffer = await readFileAsBuffer(tempOutputPath);
-        const compressedSize = compressedBuffer.length;
+        // If compression failed or file doesn't exist, use original
+        if (!compressionSuccess || !compressedBuffer) {
+            console.log("Using original video without compression");
+            compressedBuffer = fileBuffer;
+            compressedSize = originalSize;
+        }
 
         let thumbnailResult;
         try {
-            thumbnailResult = await generateVideoThumbnail(tempOutputPath);
+            // Use the file that exists (compressed or original)
+            const thumbnailSource = compressionSuccess ? tempOutputPath : tempInputPath;
+            thumbnailResult = await generateVideoThumbnail(thumbnailSource);
         } catch (thumbErr) {
             console.warn("Thumbnail generation failed:", thumbErr.message);
             thumbnailResult = await createPlaceholderThumbnail();
@@ -238,6 +268,7 @@ export const processVideoForStorage = async (fileBuffer, originalName) => {
     } catch (error) {
         console.error("Video processing failed:", error);
 
+        // Fallback: upload original without any processing
         const uploadResult = await uploadFile(
             fileBuffer,
             `${videoId}-original.mp4`,

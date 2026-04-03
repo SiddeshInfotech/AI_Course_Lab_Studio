@@ -401,12 +401,19 @@ export default function OptimizedAdminVideoManagement() {
     try {
       setAudioLoading(true);
       const courses = await api.courses.list() as any;
+      
+      if (!courses || !Array.isArray(courses)) {
+        console.error("Invalid courses response:", courses);
+        setLessonsWithAudio([]);
+        return;
+      }
+      
       const allLessons: any[] = [];
       
       for (const course of courses) {
         const lessonsRes = await api.courses.getLessons(course.id) as any;
         // lessonsRes might be { lessons: [...] } or just [...]
-        const lessons = Array.isArray(lessonsRes) ? lessonsRes : (lessonsRes.lessons || []);
+        const lessons = Array.isArray(lessonsRes) ? lessonsRes : (lessonsRes?.lessons || []);
         
         for (const lesson of lessons) {
           // Parse audioTracks if it's a JSON string
@@ -434,6 +441,10 @@ export default function OptimizedAdminVideoManagement() {
       setLessonsWithAudio(allLessons);
     } catch (err) {
       console.error("Failed to load audio lessons:", err);
+      // Show more helpful error message
+      if (err instanceof TypeError && err.message.includes("fetch")) {
+        alert("Cannot connect to server. Please ensure the backend server is running on port 5001.");
+      }
     } finally {
       setAudioLoading(false);
     }
@@ -1789,7 +1800,8 @@ export default function OptimizedAdminVideoManagement() {
                     if (unifiedAudioHindi) formData.append("audioHindi", unifiedAudioHindi);
                     if (unifiedAudioMarathi) formData.append("audioMarathi", unifiedAudioMarathi);
 
-                    const response = await fetch(`/api/courses/${unifiedCourse}/lessons/${unifiedLesson}/upload-unified-video`, {
+                    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api";
+                    const response = await fetch(`${apiBaseUrl}/courses/${unifiedCourse}/lessons/${unifiedLesson}/upload-unified-video`, {
                       method: "POST",
                       headers: {
                         "Authorization": `Bearer ${localStorage.getItem("token")}`,

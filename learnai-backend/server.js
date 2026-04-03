@@ -24,6 +24,16 @@ import { initMinioClient, testMinioConnection, ensureBucket } from "./config/min
 
 dotenv.config();
 
+// Prevent server from crashing on unhandled errors
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err.message);
+    console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
 const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV || 'development';

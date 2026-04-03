@@ -351,6 +351,7 @@ model Center {
   boardOrCurriculum   String?
   centerAdminId       String    @unique
   centerAdminPassword  String
+  encryptedPassword   String?
   status              String    @default("Active")
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

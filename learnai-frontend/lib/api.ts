@@ -503,27 +503,26 @@ export const api = {
 
   centers: {
     getAll: async () => {
+      console.log("API: Fetching centers from", `${API_BASE_URL}/centers`);
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      console.log("API: Token exists:", !!token);
+      
       const response = await fetch(`${API_BASE_URL}/centers`, {
         headers: getAuthHeaders(),
       });
-      return parseResponse<
-        Array<{
-          id: number;
-          centerName: string;
-          schoolName: string;
-          centerCode: string;
-          contactPerson: string;
-          phoneNumber: string;
-          email: string;
-          address: string | null;
-          boardOrCurriculum: string | null;
-          centerAdminId: string;
-          centerAdminPassword: string;
-          status: string;
-          createdAt: string;
-          updatedAt: string;
-        }>
-      >(response);
+      
+      console.log("API: Response status:", response.status);
+      const text = await response.text();
+      console.log("API: Response text:", text);
+      
+      const data = JSON.parse(text);
+      console.log("API: Parsed data:", data);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${data.message || text}`);
+      }
+      
+      return data;
     },
     create: async (data: {
       centerName: string;

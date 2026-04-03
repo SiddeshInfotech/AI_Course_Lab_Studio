@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, LogOut, Search, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { ApiResponseError, api } from "@/lib/api";
 
 interface CenterAuth {
   centerId: string;
@@ -13,19 +14,35 @@ interface CenterAuth {
 }
 
 interface CenterStudentRecord {
-  id: string;
-  centerId: string;
-  studentName: string;
+  id: number;
+  name: string;
+  username: string;
   email: string;
-  phoneNumber: string;
-  courseClass: string;
-  address: string;
-  enrollmentDate: string;
+  rollNumber: string | null;
+  dob: string | null;
+  createdAt: string;
+  centerId: number | null;
+  enrolledCourses: Array<{
+    id: number;
+    title: string;
+    enrolledAt: string;
+  }>;
+  totalCourses: number;
+  completedCourses: number;
+  avgProgress: number;
+  progress: Array<{
+    courseId: number;
+    completed: boolean;
+    currentLessonId: number | null;
+    lastAccessedAt: string | null;
+  }>;
+  lastActivity: string | null;
+  dailyUsageLast7Days: number;
 }
 
 const CENTER_SESSION_KEY = "centerSession";
 const CENTER_AUTH_KEY = "centerAuth";
-const CENTER_STUDENTS_KEY = "centerStudents";
+const CENTER_TOKEN_KEY = "centerToken";
 
 export default function CenterAdminDashboardPage() {
   const router = useRouter();
@@ -33,6 +50,68 @@ export default function CenterAdminDashboardPage() {
   const [centerAuth, setCenterAuth] = useState<CenterAuth | null>(null);
   const [allStudents, setAllStudents] = useState<CenterStudentRecord[]>([]);
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const fetchCenterStudents = async () => {
+    if (!centerAuth) return;
+    
+    try {
+      const token = localStorage.getItem(CENTER_TOKEN_KEY);
+      console.log("Fetching students with token:", token ? "exists" : "missing");
+      
+      const response = await fetch(`http://localhost:5001/api/center/students`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      console.log("Students response status:", response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Center students data:", data);
+        
+        // Handle the { students: [...] } response format
+        let studentsArray = [];
+        if (data.students && Array.isArray(data.students)) {
+          studentsArray = data.students;
+        } else if (Array.isArray(data)) {
+          studentsArray = data;
+        }
+        
+        console.log("Students array:", studentsArray.length);
+        
+        // Map the API data to our format with progress
+        const mappedStudents: CenterStudentRecord[] = studentsArray.map((s: any) => ({
+          id: s.id,
+          name: s.name || s.username || "Unknown",
+          username: s.username || "",
+          email: s.email || "",
+          rollNumber: s.rollNumber || null,
+          dob: s.dob || null,
+          createdAt: s.createdAt || s.created_at || new Date().toISOString(),
+          centerId: s.centerId || null,
+          enrolledCourses: s.enrolledCourses || [],
+          totalCourses: s.totalCourses || 0,
+          completedCourses: s.completedCourses || 0,
+          avgProgress: s.avgProgress || 0,
+          progress: s.progress || [],
+          lastActivity: s.lastActivity || null,
+          dailyUsageLast7Days: s.dailyUsageLast7Days || 0,
+        }));
+        
+        console.log("Mapped students:", mappedStudents.length);
+        setAllStudents(mappedStudents);
+      } else {
+        const errorText = await response.text();
+        console.error("Failed to fetch students:", response.status, errorText);
+      }
+    } catch (err) {
+      console.error("Failed to fetch center students:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -52,12 +131,6 @@ export default function CenterAdminDashboardPage() {
 
       const parsedAuth = JSON.parse(rawAuth) as CenterAuth;
       setCenterAuth(parsedAuth);
-
-      const rawStudents = localStorage.getItem(CENTER_STUDENTS_KEY);
-      if (rawStudents) {
-        const parsedStudents = JSON.parse(rawStudents) as CenterStudentRecord[];
-        setAllStudents(Array.isArray(parsedStudents) ? parsedStudents : []);
-      }
     } catch (err) {
       console.error("Failed to initialize center dashboard:", err);
       router.replace("/");
@@ -67,11 +140,17 @@ export default function CenterAdminDashboardPage() {
     setIsReady(true);
   }, [router]);
 
+  useEffect(() => {
+    if (centerAuth && isReady) {
+      fetchCenterStudents();
+    }
+  }, [centerAuth, isReady]);
+
   const centerStudents = useMemo(() => {
     if (!centerAuth) return [];
     // Data restriction: center admin sees only students for their own center_id.
     return allStudents.filter(
-      (student) => student.centerId === centerAuth.centerId,
+      (student) => String(student.centerId) === String(centerAuth.centerId),
     );
   }, [allStudents, centerAuth]);
 
@@ -81,10 +160,10 @@ export default function CenterAdminDashboardPage() {
 
     return centerStudents.filter((student) =>
       [
-        student.studentName,
+        student.name,
+        student.username,
         student.email,
-        student.phoneNumber,
-        student.courseClass,
+        student.rollNumber,
       ]
         .join(" ")
         .toLowerCase()
@@ -94,19 +173,32 @@ export default function CenterAdminDashboardPage() {
 
   const courseProgress = useMemo(() => {
     const total = centerStudents.length || 1;
-    const map = new Map<string, number>();
-
-    centerStudents.forEach((student) => {
-      map.set(student.courseClass, (map.get(student.courseClass) ?? 0) + 1);
-    });
-
-    return Array.from(map.entries())
-      .map(([courseClass, count]) => ({
-        courseClass,
-        count,
-        progressPercent: Math.round((count / total) * 100),
-      }))
-      .sort((a, b) => b.progressPercent - a.progressPercent);
+    
+    // Calculate progress distribution
+    const inProgress = centerStudents.filter(s => s.avgProgress > 0 && s.avgProgress < 100).length;
+    const completed = centerStudents.filter(s => s.avgProgress >= 100 || s.completedCourses > 0).length;
+    const notStarted = centerStudents.filter(s => s.avgProgress === 0 && s.totalCourses === 0).length;
+    
+    return [
+      {
+        courseClass: "Completed",
+        count: completed,
+        progressPercent: Math.round((completed / total) * 100),
+        color: "bg-green-500",
+      },
+      {
+        courseClass: "In Progress",
+        count: inProgress,
+        progressPercent: Math.round((inProgress / total) * 100),
+        color: "bg-blue-500",
+      },
+      {
+        courseClass: "Not Started",
+        count: notStarted,
+        progressPercent: Math.round((notStarted / total) * 100),
+        color: "bg-slate-300",
+      },
+    ];
   }, [centerStudents]);
 
   const handleLogout = () => {
@@ -173,23 +265,31 @@ export default function CenterAdminDashboardPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px]">
+              {loading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                </div>
+              ) : (
+              <table className="w-full min-w-[1000px]">
                 <thead className="bg-slate-50">
                   <tr className="text-left">
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
-                      Student Name
+                      Student
                     </th>
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
-                      Email
+                      Courses
                     </th>
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
-                      Phone Number
+                      Progress
                     </th>
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
-                      Course / Class
+                      Status
                     </th>
                     <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
-                      Enrollment Date
+                      Enrolled Courses
+                    </th>
+                    <th className="px-5 py-3 text-xs font-bold uppercase text-slate-500">
+                      Joined
                     </th>
                   </tr>
                 </thead>
@@ -199,20 +299,74 @@ export default function CenterAdminDashboardPage() {
                       key={student.id}
                       className="border-t border-slate-100 hover:bg-slate-50/70 transition-colors"
                     >
-                      <td className="px-5 py-3 text-sm font-semibold text-slate-800">
-                        {student.studentName}
+                      <td className="px-5 py-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">
+                            {student.name}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {student.email}
+                          </p>
+                        </div>
                       </td>
-                      <td className="px-5 py-3 text-sm text-slate-700">
-                        {student.email}
+                      <td className="px-5 py-3">
+                        <span className="text-sm font-semibold text-slate-700">
+                          {student.totalCourses}
+                        </span>
+                        <span className="text-xs text-slate-400 ml-1">courses</span>
                       </td>
-                      <td className="px-5 py-3 text-sm text-slate-700">
-                        {student.phoneNumber}
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${
+                                student.avgProgress >= 100 ? 'bg-green-500' :
+                                student.avgProgress > 0 ? 'bg-blue-500' : 'bg-slate-300'
+                              }`}
+                              style={{ width: `${Math.min(student.avgProgress, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-semibold text-slate-600">
+                            {student.avgProgress}%
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-5 py-3 text-sm text-slate-700">
-                        {student.courseClass}
+                      <td className="px-5 py-3">
+                        {student.avgProgress >= 100 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded-full">
+                            Completed
+                          </span>
+                        ) : student.avgProgress > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full">
+                            In Progress
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 text-xs font-semibold rounded-full">
+                            Not Started
+                          </span>
+                        )}
                       </td>
-                      <td className="px-5 py-3 text-sm text-slate-700">
-                        {new Date(student.enrollmentDate).toLocaleDateString()}
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                          {student.enrolledCourses.slice(0, 2).map((course) => (
+                            <span key={course.id} className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded">
+                              {course.title.length > 20 ? course.title.substring(0, 20) + '...' : course.title}
+                            </span>
+                          ))}
+                          {student.enrolledCourses.length > 2 && (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded">
+                              +{student.enrolledCourses.length - 2} more
+                            </span>
+                          )}
+                          {student.enrolledCourses.length === 0 && (
+                            <span className="text-xs text-slate-400">No courses</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="text-xs text-slate-500">
+                          {new Date(student.createdAt).toLocaleDateString()}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -220,7 +374,7 @@ export default function CenterAdminDashboardPage() {
                   {filteredStudents.length === 0 && (
                     <tr className="border-t border-slate-100">
                       <td
-                        colSpan={5}
+                        colSpan={6}
                         className="px-5 py-8 text-center text-sm text-slate-500"
                       >
                         No students found for this center.
@@ -229,6 +383,7 @@ export default function CenterAdminDashboardPage() {
                   )}
                 </tbody>
               </table>
+              )}
             </div>
           </div>
 
@@ -236,10 +391,10 @@ export default function CenterAdminDashboardPage() {
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
-                  Course Progress
+                  Progress Overview
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Based on student distribution
+                  Student progress summary
                 </p>
               </div>
               <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -259,12 +414,12 @@ export default function CenterAdminDashboardPage() {
                         {course.courseClass}
                       </p>
                       <p className="text-xs font-bold text-slate-900">
-                        {course.progressPercent}% ({course.count})
+                        {course.count} students
                       </p>
                     </div>
                     <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-indigo-500"
+                        className={`h-full rounded-full ${course.color}`}
                         style={{ width: `${course.progressPercent}%` }}
                       />
                     </div>
