@@ -20,7 +20,7 @@ const db = new PrismaClient();
 router.post("/log-access", authMiddleware, async (req, res) => {
   try {
     const { videoId, deviceId } = req.body;
-    const userId = req.user?.id;
+    const userId = req.user?.userId || req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -58,10 +58,13 @@ router.post("/log-access", authMiddleware, async (req, res) => {
  */
 router.get("/logs", authMiddleware, async (req, res) => {
   try {
-    const userRole = req.user?.role;
+    // Only admins can view all logs - query database for isAdmin
+    const user = await db.user.findUnique({
+      where: { id: req.user.userId || req.user.id },
+      select: { isAdmin: true },
+    });
 
-    // Only admins can view all logs
-    if (userRole !== "admin") {
+    if (!user || !user.isAdmin) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -91,7 +94,7 @@ router.get("/logs", authMiddleware, async (req, res) => {
  */
 router.get("/my-logs", authMiddleware, async (req, res) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId || req.user?.id;
     const { limit = 50, offset = 0 } = req.query;
 
     if (!userId) {
@@ -223,9 +226,13 @@ async function flagAnomalousActivity(userId, activityType, details) {
  */
 router.get("/alerts", authMiddleware, async (req, res) => {
   try {
-    const userRole = req.user?.role;
+    // Check if user is admin in database
+    const user = await db.user.findUnique({
+      where: { id: req.user.userId || req.user.id },
+      select: { isAdmin: true },
+    });
 
-    if (userRole !== "admin") {
+    if (!user || !user.isAdmin) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -255,9 +262,13 @@ router.get("/alerts", authMiddleware, async (req, res) => {
  */
 router.post("/alerts/:id/review", authMiddleware, async (req, res) => {
   try {
-    const userRole = req.user?.role;
+    // Check if user is admin in database
+    const user = await db.user.findUnique({
+      where: { id: req.user.userId || req.user.id },
+      select: { isAdmin: true },
+    });
 
-    if (userRole !== "admin") {
+    if (!user || !user.isAdmin) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -265,11 +276,11 @@ router.post("/alerts/:id/review", authMiddleware, async (req, res) => {
     const { action, notes } = req.body;
 
     const alert = await db.securityAlert.update({
-      where: { id },
+      where: { id: parseInt(id) },
       data: {
         reviewed: true,
         reviewedAt: new Date(),
-        reviewedBy: req.user.id,
+        reviewedBy: req.user.userId || req.user.id,
         adminNotes: notes,
         action,
       },

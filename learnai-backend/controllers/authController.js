@@ -77,6 +77,7 @@ const getSafeUser = (user) => ({
     username: user.username,
     email: user.email,
     isAdmin: user.isAdmin,
+    centerId: user.centerId,
     created_at: user.created_at,
 });
 
@@ -231,6 +232,7 @@ export const me = async (req, res) => {
                 username: true,
                 email: true,
                 isAdmin: true,
+                centerId: true,
                 created_at: true,
             },
         });

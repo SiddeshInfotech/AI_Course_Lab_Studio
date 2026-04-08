@@ -25,6 +25,11 @@ const processVideoUrl = (url) => {
     return url;
   }
 
+  // Uploads folder URLs - return as-is
+  if (url.startsWith("/uploads/") || url.includes("/uploads/")) {
+    return url;
+  }
+
   try {
     // Extract video ID from different YouTube URL formats
     let videoId = null;
@@ -116,23 +121,39 @@ const getPreferredAudioTrackIndex = (lesson, preferredLanguage) => {
  * @returns {object} - Curriculum data with sections and lessons
  */
 export const getCourseCurriculum = async (userId, courseId) => {
+  const parsedUserId = parseInt(userId);
+  const parsedCourseId = parseInt(courseId);
+
+  // Get course details first
+  const course = await prisma.course.findUnique({
+    where: { id: parsedCourseId },
+  });
+
   // Get all lessons for the course
   const lessons = await prisma.lesson.findMany({
-    where: { courseId: parseInt(courseId) },
+    where: { courseId: parsedCourseId },
     orderBy: { orderIndex: "asc" },
     include: {
       lessonProgress: {
-        where: { userId: parseInt(userId) },
+        where: { userId: parsedUserId },
+      },
+      lessonActivities: {
+        where: { userId: parsedUserId },
       },
     },
   });
+
+  console.log("📚 getCourseCurriculum - found lessons:", lessons.length, "courseId:", parsedCourseId);
+  if (lessons.length > 0) {
+    console.log("📚 First lesson content:", lessons[0].content?.substring(0, 200));
+  }
 
   // Get course progress to determine current lesson
   const courseProgress = await prisma.courseProgress.findUnique({
     where: {
       userId_courseId: {
-        userId: parseInt(userId),
-        courseId: parseInt(courseId),
+        userId: parsedUserId,
+        courseId: parsedCourseId,
       },
     },
   });
@@ -141,8 +162,8 @@ export const getCourseCurriculum = async (userId, courseId) => {
   let userLanguagePreference = await prisma.userLanguagePreference.findUnique({
     where: {
       userId_courseId: {
-        userId: parseInt(userId),
-        courseId: parseInt(courseId),
+        userId: parsedUserId,
+        courseId: parsedCourseId,
       },
     },
   });
@@ -168,13 +189,34 @@ export const getCourseCurriculum = async (userId, courseId) => {
 
     const isCompleted = lesson.lessonProgress.length > 0 && lesson.lessonProgress[0].completed;
     const isActive = courseProgress ? lesson.orderIndex === courseProgress.currentLessonId : false;
+    
+    // Get lesson activity for video/quiz status
+    const activity = lesson.lessonActivities.length > 0 ? lesson.lessonActivities[0] : null;
+    
+    // Check for quiz content - ANY lesson can have quiz content (not just type === 'quiz')
+    let hasQuiz = false;
+    if (lesson.content) {
+      try {
+        const parsed = JSON.parse(lesson.content);
+        hasQuiz = Array.isArray(parsed) && parsed.length > 0 && parsed[0].question && parsed[0].options;
+      } catch (e) {
+        hasQuiz = false;
+      }
+    }
+    
+    // Determine if lesson is fully complete
+    const videoCompleted = activity?.videoCompleted || false;
+    const quizCompleted = activity?.quizCompleted || false;
+    const isLessonFullyComplete = hasQuiz 
+      ? (videoCompleted && quizCompleted) 
+      : videoCompleted;
 
     sectionsMap.get(section).items.push({
       id: lesson.id,
       title: lesson.title,
       type: lesson.type,
       duration: lesson.duration,
-      completed: isCompleted,
+      completed: isLessonFullyComplete,
       active: isActive,
       description: lesson.description,
       content: lesson.content,
@@ -191,7 +233,18 @@ export const getCourseCurriculum = async (userId, courseId) => {
       preferredAudioTrack: getPreferredAudioTrackIndex(lesson, preferredLanguage),
       objectives: safeJsonParse(lesson.objectives, []),
       orderIndex: lesson.orderIndex,
+      // NEW: Video/Quiz specific progress
+      hasQuiz: hasQuiz,
+      videoCompleted: videoCompleted,
+      quizCompleted: quizCompleted,
+      quizScore: activity?.quizScore || null,
+      quizStarted: activity?.quizStarted || false,
     });
+
+    // Log quiz lessons
+    if (hasQuiz) {
+      console.log(`📚 Quiz found: Lesson ${lesson.id} (${lesson.title})`);
+    }
   });
 
   // Convert map to array
@@ -216,31 +269,50 @@ export const getCourseCurriculum = async (userId, courseId) => {
       percentage: totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0,
     },
     currentLesson: currentLesson
-      ? {
-        id: currentLesson.id,
-        title: currentLesson.title,
-        type: currentLesson.type,
-        duration: currentLesson.duration,
-        description: currentLesson.description,
-        content: currentLesson.content,
-        completed: currentLesson.lessonProgress.length > 0 && currentLesson.lessonProgress[0].completed,
-        active: true,
-        videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
-        // Legacy support for language-specific videos
-        languages: {
-          english: processVideoUrl(currentLesson.videoUrlEnglish || currentLesson.videoUrl),
-          hindi: processVideoUrl(currentLesson.videoUrlHindi),
-          marathi: processVideoUrl(currentLesson.videoUrlMarathi),
-        },
-        // New unified video with audio tracks support
-        unifiedVideoUrl: currentLesson.unifiedVideoUrl ? processVideoUrl(currentLesson.unifiedVideoUrl) : null,
-        audioTracks: getAudioTracks(currentLesson),
-        preferredAudioTrack: getPreferredAudioTrackIndex(currentLesson, preferredLanguage),
-        objectives: safeJsonParse(currentLesson.objectives, []),
-        orderIndex: currentLesson.orderIndex,
-      }
+      ? (() => {
+        const currActivity = currentLesson.lessonActivities.length > 0 ? currentLesson.lessonActivities[0] : null;
+        let currHasQuiz = false;
+        if (currentLesson.content) {
+          try {
+            const parsed = JSON.parse(currentLesson.content);
+            currHasQuiz = Array.isArray(parsed) && parsed.length > 0 && parsed[0].question && parsed[0].options;
+          } catch (e) {
+            currHasQuiz = false;
+          }
+        }
+        return {
+          id: currentLesson.id,
+          title: currentLesson.title,
+          type: currentLesson.type,
+          duration: currentLesson.duration,
+          description: currentLesson.description,
+          content: currentLesson.content,
+          completed: currentLesson.lessonProgress.length > 0 && currentLesson.lessonProgress[0].completed,
+          active: true,
+          videoUrl: getVideoUrlByLanguage(currentLesson, preferredLanguage),
+          // Legacy support for language-specific videos
+          languages: {
+            english: processVideoUrl(currentLesson.videoUrlEnglish || currentLesson.videoUrl),
+            hindi: processVideoUrl(currentLesson.videoUrlHindi),
+            marathi: processVideoUrl(currentLesson.videoUrlMarathi),
+          },
+          // New unified video with audio tracks support
+          unifiedVideoUrl: currentLesson.unifiedVideoUrl ? processVideoUrl(currentLesson.unifiedVideoUrl) : null,
+          audioTracks: getAudioTracks(currentLesson),
+          preferredAudioTrack: getPreferredAudioTrackIndex(currentLesson, preferredLanguage),
+          objectives: safeJsonParse(currentLesson.objectives, []),
+          orderIndex: currentLesson.orderIndex,
+          // Video/Quiz progress
+          hasQuiz: currHasQuiz,
+          videoCompleted: currActivity?.videoCompleted || false,
+          quizCompleted: currActivity?.quizCompleted || false,
+          quizScore: currActivity?.quizScore || null,
+          quizStarted: currActivity?.quizStarted || false,
+        };
+      })()
       : null,
     preferredLanguage,
+    courseTitle: course?.title || "Course",
   };
 };
 
@@ -601,4 +673,214 @@ export const getCourseCurriculumWithTools = async (userId, courseId) => {
       : null,
     preferredLanguage,
   };
+};
+
+/**
+ * Update video progress for a lesson
+ * @param {number} userId - User ID
+ * @param {number} lessonId - Lesson ID  
+ * @param {object} data - { videoStarted, videoCompleted, videoWatchTime }
+ * @returns {object} - Updated activity
+ */
+export const updateVideoProgress = async (userId, lessonId, data) => {
+  const parsedUserId = parseInt(userId);
+  const parsedLessonId = parseInt(lessonId);
+  
+  // Get lesson to find courseId
+  const lesson = await prisma.lesson.findUnique({
+    where: { id: parsedLessonId },
+    select: { courseId: true }
+  });
+  
+  if (!lesson) {
+    throw new Error("Lesson not found");
+  }
+  
+  console.log("📹 updateVideoProgress:", { userId: parsedUserId, lessonId: parsedLessonId, courseId: lesson.courseId, data });
+  
+  // Upsert lesson activity
+  const activity = await prisma.lessonActivity.upsert({
+    where: {
+      userId_lessonId: {
+        userId: parsedUserId,
+        lessonId: parsedLessonId,
+      }
+    },
+    create: {
+      userId: parsedUserId,
+      lessonId: parsedLessonId,
+      courseId: lesson.courseId,
+      videoStarted: data.videoStarted || false,
+      videoCompleted: data.videoCompleted || false,
+      videoStartedAt: data.videoStarted ? new Date() : null,
+      videoCompletedAt: data.videoCompleted ? new Date() : null,
+      videoWatchTime: data.videoWatchTime || 0,
+    },
+    update: {
+      videoStarted: data.videoStarted !== undefined ? data.videoStarted : undefined,
+      videoCompleted: data.videoCompleted !== undefined ? data.videoCompleted : undefined,
+      videoCompletedAt: data.videoCompleted ? new Date() : undefined,
+      videoWatchTime: data.videoWatchTime !== undefined ? data.videoWatchTime : undefined,
+    },
+  });
+  
+  console.log("📹 activity after upsert:", activity);
+  return activity;
+};
+
+/**
+ * Submit quiz for a lesson
+ * @param {number} userId - User ID
+ * @param {number} lessonId - Lesson ID
+ * @param {object} data - { answers: object, score: number }
+ * @returns {object} - Updated activity with quiz results
+ */
+export const submitQuiz = async (userId, lessonId, data) => {
+  const parsedUserId = parseInt(userId);
+  const parsedLessonId = parseInt(lessonId);
+  
+  // Get lesson to find courseId
+  const lesson = await prisma.lesson.findUnique({
+    where: { id: parsedLessonId },
+    select: { courseId: true }
+  });
+  
+  if (!lesson) {
+    throw new Error("Lesson not found");
+  }
+  
+  // First get existing activity to check if quiz was started
+  const existingActivity = await prisma.lessonActivity.findUnique({
+    where: {
+      userId_lessonId: {
+        userId: parsedUserId,
+        lessonId: parsedLessonId,
+      }
+    }
+  });
+  
+  // Upsert lesson activity with quiz data
+  const activity = await prisma.lessonActivity.upsert({
+    where: {
+      userId_lessonId: {
+        userId: parsedUserId,
+        lessonId: parsedLessonId,
+      }
+    },
+    create: {
+      userId: parsedUserId,
+      lessonId: parsedLessonId,
+      courseId: lesson.courseId,
+      quizStarted: true,
+      quizCompleted: true,
+      quizStartedAt: new Date(),
+      quizCompletedAt: new Date(),
+      quizScore: data.score,
+      quizAnswers: JSON.stringify(data.answers),
+    },
+    update: {
+      quizStarted: true,
+      quizCompleted: true,
+      quizCompletedAt: new Date(),
+      quizScore: data.score,
+      quizAnswers: JSON.stringify(data.answers),
+    },
+  });
+  
+  // Also mark lesson as completed in LessonProgress
+  await prisma.lessonProgress.upsert({
+    where: {
+      userId_lessonId: {
+        userId: parsedUserId,
+        lessonId: parsedLessonId,
+      }
+    },
+    create: {
+      userId: parsedUserId,
+      lessonId: parsedLessonId,
+      courseId: lesson.courseId,
+      completed: true,
+      completedAt: new Date(),
+    },
+    update: {
+      completed: true,
+      completedAt: new Date(),
+    },
+  });
+  
+  return activity;
+};
+
+/**
+ * Get lesson activity for a specific lesson
+ * @param {number} userId - User ID
+ * @param {number} lessonId - Lesson ID
+ * @returns {object|null} - Lesson activity or null
+ */
+export const getLessonActivity = async (userId, lessonId) => {
+  const activity = await prisma.lessonActivity.findUnique({
+    where: {
+      userId_lessonId: {
+        userId: parseInt(userId),
+        lessonId: parseInt(lessonId),
+      }
+    }
+  });
+  
+  if (activity?.quizAnswers) {
+    return {
+      ...activity,
+      quizAnswers: JSON.parse(activity.quizAnswers)
+    };
+  }
+  
+  return activity;
+};
+
+/**
+ * Reset quiz progress for a lesson to allow retake
+ * @param {number} userId - User ID
+ * @param {number} lessonId - Lesson ID
+ * @returns {object} - Reset activity
+ */
+export const resetQuiz = async (userId, lessonId) => {
+  const parsedUserId = parseInt(userId);
+  const parsedLessonId = parseInt(lessonId);
+  
+  // Get lesson to find courseId
+  const lesson = await prisma.lesson.findUnique({
+    where: { id: parsedLessonId },
+    select: { courseId: true }
+  });
+  
+  if (!lesson) {
+    throw new Error("Lesson not found");
+  }
+  
+  // Reset quiz in lesson activity (keep video progress intact)
+  const activity = await prisma.lessonActivity.upsert({
+    where: {
+      userId_lessonId: {
+        userId: parsedUserId,
+        lessonId: parsedLessonId,
+      }
+    },
+    update: {
+      quizStarted: false,
+      quizCompleted: false,
+      quizStartedAt: null,
+      quizCompletedAt: null,
+      quizScore: null,
+      quizAnswers: null,
+    },
+    create: {
+      userId: parsedUserId,
+      lessonId: parsedLessonId,
+      courseId: lesson.courseId,
+      videoStarted: false,
+      videoCompleted: false,
+    },
+  });
+  
+  return activity;
 };

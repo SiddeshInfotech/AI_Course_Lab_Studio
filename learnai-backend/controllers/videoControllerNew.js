@@ -62,7 +62,7 @@ export const uploadVideo = async (req, res) => {
         }
 
         // Extract entity information from formData (multipart)
-        const { lessonId, courseId, title } = req.body;
+        const { lessonId, courseId, title, quizContent } = req.body;
         const userId = req.user?.id || req.user?.userId;
 
         // Determine entityType and entityId based on what was provided
@@ -70,11 +70,11 @@ export const uploadVideo = async (req, res) => {
         let entityId = null;
 
         if (lessonId) {
-          entityType = 'lesson';
-          entityId = parseInt(lessonId);
+            entityType = 'lesson';
+            entityId = parseInt(lessonId);
         } else if (courseId) {
-          entityType = 'course';
-          entityId = parseInt(courseId);
+            entityType = 'course';
+            entityId = parseInt(courseId);
         }
 
         // Generate unique filename
@@ -82,6 +82,9 @@ export const uploadVideo = async (req, res) => {
 
         console.log(`📤 Uploading video: ${file.originalname} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
         console.log(`📋 Entity Info - Type: ${entityType}, ID: ${entityId}`);
+        if (quizContent) {
+            console.log(`📝 Quiz content included: ${quizContent.length} characters`);
+        }
 
         // Save file to disk
         const savedVideo = await saveVideoFile(file.buffer, filename);
@@ -99,18 +102,33 @@ export const uploadVideo = async (req, res) => {
             thumbnailUrl: `${process.env.STATIC_URL || 'http://localhost:5001'}/uploads/videos/placeholder.png`
         });
 
-        // If uploading to a lesson, update the lesson's videoUrl
+        // If uploading to a lesson, update the lesson's videoUrl and optionally quizContent
         if (entityType === 'lesson' && entityId) {
             try {
+                const updateData = {
+                    videoUrl: savedVideo.url
+                };
+
+                // Add quiz content if provided
+                if (quizContent) {
+                    try {
+                        // Validate quiz JSON
+                        JSON.parse(quizContent);
+                        updateData.content = quizContent;
+                        console.log(`✅ Quiz content will be saved to lesson`);
+                    } catch (jsonError) {
+                        console.warn(`⚠️ Invalid quiz JSON: ${jsonError.message}`);
+                        // Don't fail the upload if JSON is invalid, just skip quiz content
+                    }
+                }
+
                 await prisma.lesson.update({
                     where: { id: parseInt(entityId) },
-                    data: {
-                        videoUrl: savedVideo.url
-                    }
+                    data: updateData
                 });
-                console.log(`✅ Updated lesson ${entityId} videoUrl to: ${savedVideo.url}`);
+                console.log(`✅ Updated lesson ${entityId} with videoUrl and ${quizContent ? 'quiz content' : 'no quiz'}`);
             } catch (lessonError) {
-                console.warn(`⚠️ Failed to update lesson videoUrl: ${lessonError.message}`);
+                console.warn(`⚠️ Failed to update lesson: ${lessonError.message}`);
                 // Don't fail the entire upload if lesson update fails
             }
         }
@@ -137,7 +155,8 @@ export const uploadVideo = async (req, res) => {
                 entityId: videoRecord.entityId,
                 createdAt: videoRecord.createdAt,
                 lesson: null,
-                course: null
+                course: null,
+                quizContent: quizContent ? 'saved' : null
             }
         });
     } catch (error) {

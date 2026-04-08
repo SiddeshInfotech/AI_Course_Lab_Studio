@@ -24,6 +24,7 @@ model User {
   dailyUsage     DailyUsage[]
   courseProgress CourseProgress[]
   lessonProgress LessonProgress[]
+  lessonActivities LessonActivity[]
   toolProgress   ToolProgress[]
   encryptedVideos EncryptedVideo[]
   licenses        UserLicense[]
@@ -87,6 +88,7 @@ model Lesson {
   updatedAt        DateTime         @updatedAt
   course           Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lessonProgress   LessonProgress[]
+  lessonActivities LessonActivity[]
 
   @@unique([courseId, orderIndex])
   @@index([courseId])
@@ -196,6 +198,32 @@ model LessonProgress {
   updatedAt   DateTime  @updatedAt
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId, courseId])
+  @@index([lessonId])
+}
+
+model LessonActivity {
+  id                 Int       @id @default(autoincrement())
+  userId             Int
+  lessonId           Int
+  courseId           Int
+  videoStarted       Boolean   @default(false)
+  videoCompleted     Boolean   @default(false)
+  videoStartedAt     DateTime?
+  videoCompletedAt   DateTime?
+  videoWatchTime     Int       @default(0) // seconds watched
+  quizStarted        Boolean   @default(false)
+  quizCompleted      Boolean   @default(false)
+  quizStartedAt      DateTime?
+  quizCompletedAt     DateTime?
+  quizScore          Int?
+  quizAnswers        String?   // JSON string of answers
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson             Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lessonId])
   @@index([userId, courseId])

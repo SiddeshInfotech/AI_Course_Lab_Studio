@@ -629,6 +629,11 @@ export const api = {
             };
             objectives: string[];
             orderIndex: number;
+            hasQuiz?: boolean;
+            videoCompleted?: boolean;
+            quizCompleted?: boolean;
+            quizScore?: number | null;
+            quizStarted?: boolean;
           }>;
         }>;
         progress: {
@@ -644,6 +649,8 @@ export const api = {
           description: string | null;
           content: string | null;
           videoUrl: string | null;
+          unifiedVideoUrl?: string | null;
+          audioTracks?: string | null | any[];
           languages?: {
             english?: string | null;
             hindi?: string | null;
@@ -651,7 +658,15 @@ export const api = {
           };
           objectives: string[];
           orderIndex: number;
+          hasQuiz?: boolean;
+          videoCompleted?: boolean;
+          quizCompleted?: boolean;
+          quizScore?: number | null;
+          quizStarted?: boolean;
+          completed?: boolean;
         } | null;
+        preferredLanguage?: string;
+        courseTitle?: string;
       }>(response);
     },
 
@@ -668,6 +683,8 @@ export const api = {
         description: string | null;
         content: string | null;
         videoUrl: string | null;
+        unifiedVideoUrl?: string | null;
+        audioTracks?: string | null | any[];
         duration: string | null;
         section: string | null;
         sectionTitle: string | null;
@@ -675,6 +692,11 @@ export const api = {
         objectives: string[];
         completed: boolean;
         orderIndex: number;
+        hasQuiz?: boolean;
+        videoCompleted?: boolean;
+        quizCompleted?: boolean;
+        quizScore?: number | null;
+        quizStarted?: boolean;
         course: {
           id: number;
           title: string;
@@ -767,6 +789,87 @@ export const api = {
           createdAt: string;
           updatedAt: string;
         } | null;
+      }>(response);
+    },
+
+    // Video progress tracking
+    updateVideoProgress: async (
+      lessonId: number,
+      data: { videoStarted?: boolean; videoCompleted?: boolean; videoWatchTime?: number }
+    ) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/lesson/${lessonId}/video-progress`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(data),
+        },
+      );
+      return parseResponse<{
+        success: boolean;
+        activity: {
+          videoStarted: boolean;
+          videoCompleted: boolean;
+          videoWatchTime: number;
+        };
+      }>(response);
+    },
+
+    // Quiz submission
+    submitQuiz: async (
+      lessonId: number,
+      data: { answers: Record<number, number>; score: number }
+    ) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/lesson/${lessonId}/quiz-submit`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(data),
+        },
+      );
+      return parseResponse<{
+        success: boolean;
+        quizResult: {
+          quizCompleted: boolean;
+          quizScore: number;
+        };
+      }>(response);
+    },
+
+    // Get lesson activity (video/quiz status)
+    getLessonActivity: async (lessonId: number) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/lesson/${lessonId}/activity`,
+        {
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<{
+        videoStarted: boolean;
+        videoCompleted: boolean;
+        videoWatchTime: number;
+        quizStarted: boolean;
+        quizCompleted: boolean;
+        quizScore: number | null;
+        quizAnswers: Record<number, number> | null;
+      }>(response);
+    },
+
+    // Reset quiz to allow retake
+    resetQuiz: async (lessonId: number) => {
+      const response = await fetch(
+        `${API_BASE_URL}/learning/lesson/${lessonId}/quiz-reset`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+        },
+      );
+      return parseResponse<{
+        success: boolean;
+        message: string;
+        quizCompleted: boolean;
+        quizScore: number | null;
       }>(response);
     },
 

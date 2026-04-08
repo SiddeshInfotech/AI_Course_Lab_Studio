@@ -120,6 +120,8 @@ export default function AIDashboardPage() {
     completedLessonOrderIndexes,
     setCompletedLessonOrderIndexes,
   ] = useState<number[]>([]);
+  const [lastCompletedCourseId, setLastCompletedCourseId] = useState<number | null>(null);
+  const [lastCompletedLessonOrder, setLastCompletedLessonOrder] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -169,6 +171,23 @@ export default function AIDashboardPage() {
           
           setCompletedLessonOrderIndexes(completedOrders);
           setTotalLessons(allLessons.length);
+          
+          // Find the last completed lesson (for "Continue Learning")
+          if (completedLessons.length > 0) {
+            const lastCompleted = completedLessons.reduce((max, lesson) => 
+              lesson.orderIndex > max.orderIndex ? lesson : max, completedLessons[0]);
+            // If the last completed is NOT the last lesson, use it. Otherwise, use the previous one
+            const isLastLesson = lastCompleted.orderIndex === allLessons.length;
+            const continueLesson = isLastLesson && completedLessons.length > 1
+              ? completedLessons.sort((a, b) => b.orderIndex - a.orderIndex)[1]
+              : lastCompleted;
+            setLastCompletedCourseId(mainCourse.id);
+            setLastCompletedLessonOrder(continueLesson.orderIndex);
+          } else {
+            // If no lessons completed, start from lesson 1
+            setLastCompletedCourseId(mainCourse.id);
+            setLastCompletedLessonOrder(1);
+          }
 
           // Calculate stats from curriculum data
           const modulesCompleted = completedLessons.length;
@@ -382,11 +401,17 @@ export default function AIDashboardPage() {
           {/* Right icons */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => router.push("/learning")}
+              onClick={() => {
+                if (lastCompletedCourseId && lastCompletedLessonOrder) {
+                  router.push(`/learning?courseId=${lastCompletedCourseId}&lessonOrderIndex=${lastCompletedLessonOrder}`);
+                } else {
+                  router.push("/learning");
+                }
+              }}
               className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold rounded-full transition-colors text-sm"
             >
               <BookOpen className="w-4 h-4" />
-              My Learning
+              {completedLessonOrderIndexes.length > 0 ? "Continue Learning" : "My Learning"}
             </button>
             <ProfileDropdown />
           </div>

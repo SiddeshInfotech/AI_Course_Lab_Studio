@@ -182,3 +182,132 @@ export const getLanguagePreference = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+/**
+ * POST /api/learning/lesson/:lessonId/video-progress
+ * Update video watch progress
+ */
+export const updateVideoProgress = async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.userId;
+    const { videoStarted, videoCompleted, videoWatchTime } = req.body;
+
+    console.log("📹 Video progress update:", { lessonId, userId, videoStarted, videoCompleted, videoWatchTime });
+
+    const { updateVideoProgress } = await import("../models/learningModel.js");
+    const activity = await updateVideoProgress(userId, lessonId, {
+      videoStarted,
+      videoCompleted,
+      videoWatchTime
+    });
+
+    res.json({
+      success: true,
+      activity: {
+        videoStarted: activity.videoStarted,
+        videoCompleted: activity.videoCompleted,
+        videoWatchTime: activity.videoWatchTime
+      }
+    });
+  } catch (error) {
+    console.error("Video progress update error:", error);
+    res.status(500).json({ message: error.message || "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/learning/lesson/:lessonId/quiz-submit
+ * Submit quiz answers and get score
+ */
+export const submitQuiz = async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.userId;
+    const { answers, score } = req.body;
+
+    console.log("📝 Quiz submit:", { lessonId, userId, score, answersCount: answers ? Object.keys(answers).length : 0 });
+
+    const { submitQuiz: submitQuizFn } = await import("../models/learningModel.js");
+    const activity = await submitQuizFn(userId, lessonId, {
+      answers,
+      score
+    });
+
+    res.json({
+      success: true,
+      quizResult: {
+        quizCompleted: activity.quizCompleted,
+        quizScore: activity.quizScore
+      }
+    });
+  } catch (error) {
+    console.error("Quiz submit error:", error);
+    res.status(500).json({ message: error.message || "Internal server error" });
+  }
+};
+
+/**
+ * GET /api/learning/lesson/:lessonId/activity
+ * Get video/quiz progress for a lesson
+ */
+export const getLessonActivity = async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.userId;
+
+    const { getLessonActivity: getActivityFn } = await import("../models/learningModel.js");
+    const activity = await getActivityFn(userId, lessonId);
+
+    if (!activity) {
+      return res.json({
+        videoStarted: false,
+        videoCompleted: false,
+        videoWatchTime: 0,
+        quizStarted: false,
+        quizCompleted: false,
+        quizScore: null,
+        quizAnswers: null
+      });
+    }
+
+    res.json({
+      videoStarted: activity.videoStarted,
+      videoCompleted: activity.videoCompleted,
+      videoWatchTime: activity.videoWatchTime,
+      quizStarted: activity.quizStarted,
+      quizCompleted: activity.quizCompleted,
+      quizScore: activity.quizScore,
+      quizAnswers: activity.quizAnswers
+    });
+  } catch (error) {
+    console.error("Get lesson activity error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/learning/lesson/:lessonId/quiz-reset
+ * Reset quiz progress to allow retake
+ */
+export const resetQuiz = async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.userId;
+
+    console.log("📝 Quiz reset for lesson:", lessonId, "user:", userId);
+
+    const { resetQuiz: resetQuizFn } = await import("../models/learningModel.js");
+    const activity = await resetQuizFn(userId, lessonId);
+
+    res.json({
+      success: true,
+      message: "Quiz reset successfully",
+      quizCompleted: false,
+      quizScore: null
+    });
+  } catch (error) {
+    console.error("Quiz reset error:", error);
+    res.status(500).json({ message: error.message || "Internal server error" });
+  }
+};

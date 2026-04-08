@@ -828,11 +828,50 @@ export const uploadUnifiedVideo = async (req, res) => {
             }
         }
 
-        // Update lesson with unified video URL and audio tracks
-        const updatedLesson = await updateLesson(lessonIdNum, {
+        // Update lesson with unified video URL, audio tracks, and quiz content
+        const lessonUpdateData = {
             unifiedVideoUrl: videoResult.url,
             audioTracks: JSON.stringify(audioTracks),
+        };
+
+        // Add quiz content if provided
+        // Check both req.body and req.fields for quiz content
+        const quizContent = req.body?.quizContent || req.fields?.quizContent?.[0];
+
+        if (quizContent) {
+            try {
+                // Validate that quizContent is valid JSON
+                const parsedQuizContent = JSON.parse(quizContent);
+
+                // Ensure it's an array
+                if (!Array.isArray(parsedQuizContent)) {
+                    throw new Error("Quiz content must be a JSON array");
+                }
+
+                lessonUpdateData.content = JSON.stringify(parsedQuizContent);
+                lessonUpdateData.type = "quiz"; // Set lesson type to quiz if quiz content provided
+                console.log(`✅ Quiz content saved: ${parsedQuizContent.length} questions stored as JSON`);
+                console.log(`✅ Lesson type set to "quiz"`);
+            } catch (err) {
+                console.error("❌ Invalid quiz JSON:", err.message);
+                return res.status(400).json({ message: `Invalid quiz JSON format: ${err.message}` });
+            }
+        } else {
+            console.log(`ℹ️ No quiz content provided for this lesson`);
+        }
+
+        const updatedLesson = await updateLesson(lessonIdNum, lessonUpdateData);
+        console.log(`✅ Lesson updated with:`, {
+            hasVideo: !!videoResult.url,
+            hasAudio: audioTracks.length > 0,
+            hasQuiz: !!quizContent,
+            questionCount: quizContent ? JSON.parse(quizContent).length : 0
         });
+
+        // Log lesson content for verification
+        if (quizContent) {
+            console.log(`📝 Stored lesson content (first 200 chars):`, updatedLesson.content?.substring(0, 200) + "...");
+        }
 
         console.log(`✅ Unified video uploaded for lesson ${lessonIdNum} with ${audioTracks.length} audio tracks`);
 
