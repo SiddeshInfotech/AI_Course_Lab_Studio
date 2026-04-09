@@ -338,6 +338,7 @@ export const getLessonDetails = async (userId, lessonId) => {
         where: { userId: parseInt(userId) },
       },
       course: true,
+      tool: true,
     },
   });
 
@@ -366,6 +367,7 @@ export const getLessonDetails = async (userId, lessonId) => {
     sectionTitle: lesson.sectionTitle,
     type: lesson.type,
     objectives: safeJsonParse(lesson.objectives, []),
+    toolUrl: lesson.tool?.websiteUrl || null,
     completed: isCompleted,
     orderIndex: lesson.orderIndex,
     // Video/Quiz progress from LessonActivity

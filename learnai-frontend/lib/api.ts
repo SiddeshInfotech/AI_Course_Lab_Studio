@@ -701,6 +701,7 @@ export const api = {
         quizCompleted?: boolean;
         quizScore?: number | null;
         quizStarted?: boolean;
+        toolUrl?: string | null;
         course: {
           id: number;
           title: string;

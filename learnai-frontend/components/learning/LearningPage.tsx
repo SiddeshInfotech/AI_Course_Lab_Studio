@@ -12,6 +12,7 @@ import {
   Target,
   Menu,
   CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
@@ -46,6 +47,7 @@ interface CurrentLesson {
   quizScore: number | null;
   quizStarted: boolean;
   completed: boolean;
+  toolUrl?: string | null;
 }
 
 interface LessonItem {
@@ -662,6 +664,17 @@ export default function LearningPage() {
                       <h3 className="font-semibold text-slate-900">About this lesson</h3>
                     </div>
                     <p className="text-slate-600">{currentLesson.description}</p>
+                    {currentLesson.toolUrl && (
+                      <a
+                        href={currentLesson.toolUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Try this tool
+                      </a>
+                    )}
                   </div>
                 )}
               </>
