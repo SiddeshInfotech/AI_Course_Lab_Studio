@@ -11,6 +11,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setWindowFullscreen: (enabled: boolean) =>
     ipcRenderer.invoke("set-window-fullscreen", enabled),
   isWindowFullscreen: () => ipcRenderer.invoke("is-window-fullscreen"),
+  
+  // Security APIs
+  getHardwareId: () => ipcRenderer.invoke("get-hardware-id"),
+  isVmDetected: () => ipcRenderer.invoke("is-vm-detected"),
+  checkRecordingActive: () => ipcRenderer.invoke("check-recording-active"),
+  
+  // Event listeners
   onWindowFullscreenChanged: (callback: (isFullscreen: boolean) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, value: boolean) => {
       callback(value);
@@ -19,6 +26,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("window-fullscreen-changed", listener);
     return () => {
       ipcRenderer.removeListener("window-fullscreen-changed", listener);
+    };
+  },
+  onRecordingDetected: (callback: (data: { detected: boolean; processes?: string[]; timestamp: number }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { detected: boolean; processes?: string[]; timestamp: number }) => {
+      callback(data);
+    };
+
+    ipcRenderer.on("recording-detected", listener);
+    return () => {
+      ipcRenderer.removeListener("recording-detected", listener);
     };
   },
 });

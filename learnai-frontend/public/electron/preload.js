@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getPlatform: () => ipcRenderer.invoke("get-platform"),
     setWindowFullscreen: (enabled) => ipcRenderer.invoke("set-window-fullscreen", enabled),
     isWindowFullscreen: () => ipcRenderer.invoke("is-window-fullscreen"),
+    // Security APIs
+    getHardwareId: () => ipcRenderer.invoke("get-hardware-id"),
+    isVmDetected: () => ipcRenderer.invoke("is-vm-detected"),
+    checkRecordingActive: () => ipcRenderer.invoke("check-recording-active"),
+    // Event listeners
     onWindowFullscreenChanged: (callback) => {
         const listener = (_event, value) => {
             callback(value);
@@ -13,6 +18,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
         ipcRenderer.on("window-fullscreen-changed", listener);
         return () => {
             ipcRenderer.removeListener("window-fullscreen-changed", listener);
+        };
+    },
+    onRecordingDetected: (callback) => {
+        const listener = (_event, data) => {
+            callback(data);
+        };
+        ipcRenderer.on("recording-detected", listener);
+        return () => {
+            ipcRenderer.removeListener("recording-detected", listener);
         };
     },
 });

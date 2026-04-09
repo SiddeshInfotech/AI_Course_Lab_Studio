@@ -18,6 +18,7 @@ export interface UseLearningStateReturn {
   error: string | null;
   updateVideoProgress: (lessonId: number) => Promise<void>;
   submitQuiz: (lessonId: number, answers: Record<number, number>, score: number) => Promise<void>;
+  resetQuiz: (lessonId: number) => Promise<void>;
   refreshProgress: (lessonId: number) => Promise<void>;
   setVideoCompleted: (value: boolean) => void;
   setQuizCompleted: (value: boolean) => void;

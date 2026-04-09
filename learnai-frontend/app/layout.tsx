@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/hooks/useAuth";
+import { SecurityProvider } from "@/components/SecurityContext";
 import ProtectionWrapper from "@/components/ProtectionWrapper";
+import SecurityWarningOverlay from "@/components/SecurityWarningOverlay";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +19,10 @@ export default function RootLayout({
     <html lang="en">
       <body className="font-sans antialiased" suppressHydrationWarning>
         <AuthProvider>
-          <ProtectionWrapper>{children}</ProtectionWrapper>
+          <SecurityProvider>
+            <ProtectionWrapper>{children}</ProtectionWrapper>
+            <SecurityWarningOverlay />
+          </SecurityProvider>
         </AuthProvider>
       </body>
     </html>

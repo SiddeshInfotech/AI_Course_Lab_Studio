@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSecurityWarning } from "@/components/SecurityContext";
 import { api } from "@/lib/api";
 import VideoPlayer, { AudioTrack } from "./VideoPlayer";
 import QuizSection, { QuizQuestion } from "./QuizSection";
@@ -57,10 +58,11 @@ interface LessonItem {
   duration: string | null;
   completed: boolean;
   active: boolean;
-  hasQuiz: boolean;
-  videoCompleted: boolean;
-  quizCompleted: boolean;
+  hasQuiz?: boolean;
+  videoCompleted?: boolean;
+  quizCompleted?: boolean;
   orderIndex: number;
+  [key: string]: unknown;
 }
 
 interface CurriculumSection {
@@ -68,6 +70,7 @@ interface CurriculumSection {
   day: string;
   title: string;
   items: LessonItem[];
+  [key: string]: unknown;
 }
 
 const parseQuizQuestions = (content: string | null): QuizQuestion[] => {
@@ -121,6 +124,7 @@ export default function LearningPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isSecurityWarningVisible } = useSecurityWarning();
   const courseId = searchParams.get("courseId");
   const lessonId = searchParams.get("lessonId");
   const lessonOrderIndex = searchParams.get("lessonOrderIndex");
@@ -175,20 +179,20 @@ export default function LearningPage() {
           setCurrentLesson(lessonData as CurrentLesson);
           setVideoCompleted(lessonData.videoCompleted || false);
           setQuizCompleted(lessonData.quizCompleted || false);
-          setQuizScore(lessonData.quizScore);
+          setQuizScore(lessonData.quizScore ?? null);
           setQuizSubmitted(lessonData.quizCompleted || false);
         } else if (data.currentLesson) {
           setCurrentLesson(data.currentLesson as CurrentLesson);
           setVideoCompleted(data.currentLesson.videoCompleted || false);
           setQuizCompleted(data.currentLesson.quizCompleted || false);
-          setQuizScore(data.currentLesson.quizScore);
+          setQuizScore(data.currentLesson.quizScore ?? null);
           setQuizSubmitted(data.currentLesson.quizCompleted || false);
         }
       } else if (data.currentLesson) {
         setCurrentLesson(data.currentLesson as CurrentLesson);
         setVideoCompleted(data.currentLesson.videoCompleted || false);
         setQuizCompleted(data.currentLesson.quizCompleted || false);
-        setQuizScore(data.currentLesson.quizScore);
+        setQuizScore(data.currentLesson.quizScore ?? null);
         setQuizSubmitted(data.currentLesson.quizCompleted || false);
       }
     } catch (err) {
@@ -246,8 +250,8 @@ export default function LearningPage() {
             quizStarted: false,
             completed: nextLesson.completed,
           } as CurrentLesson);
-          setVideoCompleted(nextLesson.videoCompleted);
-          setQuizCompleted(nextLesson.quizCompleted);
+          setVideoCompleted(nextLesson.videoCompleted || false);
+          setQuizCompleted(nextLesson.quizCompleted || false);
           setQuizScore(null);
           setQuizSubmitted(false);
           router.replace(`/learning?courseId=${courseId}&lessonOrderIndex=${nextLesson.orderIndex}`);
@@ -308,8 +312,8 @@ export default function LearningPage() {
         quizStarted: false,
         completed: lesson.completed,
       } as CurrentLesson);
-      setVideoCompleted(lesson.videoCompleted);
-      setQuizCompleted(lesson.quizCompleted);
+      setVideoCompleted(lesson.videoCompleted || false);
+      setQuizCompleted(lesson.quizCompleted || false);
       setQuizScore(null);
       setQuizSubmitted(false);
 
@@ -629,6 +633,7 @@ export default function LearningPage() {
                       audioTracks={audioTracks}
                       onVideoComplete={handleVideoComplete}
                       className="mb-4"
+                      paused={isSecurityWarningVisible}
                     />
                     {!videoCompleted && (
                       <p className="text-center text-amber-600 text-sm font-medium">

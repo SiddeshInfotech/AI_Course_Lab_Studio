@@ -10,6 +10,7 @@ import {
   VolumeX,
   Loader,
   Languages,
+  AlertTriangle,
 } from "lucide-react";
 
 export interface AudioTrack {
@@ -27,6 +28,7 @@ interface VideoPlayerProps {
   onProgress?: (progress: number) => void;
   className?: string;
   autoPlay?: boolean;
+  paused?: boolean;
 }
 
 export interface VideoPlayerHandle {
@@ -36,7 +38,7 @@ export interface VideoPlayerHandle {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ videoUrl, title, watermarkText, audioTracks, onVideoComplete, onProgress, className = "", autoPlay = false }, ref) => {
+  ({ videoUrl, title, watermarkText, audioTracks, onVideoComplete, onProgress, className = "", autoPlay = false, paused = false }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -69,6 +71,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Video is always from videoUrl prop (unifiedVideoUrl)
     // Audio comes from selected audio track
     const videoSourceUrl = videoUrl;
+
+    // Pause video when paused prop is true (e.g., during security warning)
+    useEffect(() => {
+      const video = videoRef.current;
+      const audio = audioRef.current;
+      if (!video) return;
+
+      if (paused && isPlaying) {
+        video.pause();
+        if (audio) audio.pause();
+        setIsPlaying(false);
+      }
+    }, [paused, isPlaying]);
 
     // Simplified - skip usage limit checks for now
     const checkUsageLimit = async () => true;

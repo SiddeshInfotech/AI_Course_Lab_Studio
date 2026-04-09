@@ -105,17 +105,6 @@ interface Lesson {
   videoType: "uploaded" | "external" | null;
 }
 
-// Chunked upload state
-interface ChunkedUploadState {
-  sessionId: string | null;
-  filename: string;
-  totalChunks: number;
-  uploadedChunks: number;
-  progress: number;
-  status: "idle" | "uploading" | "assembling" | "completed" | "error";
-  error?: string;
-}
-
 const VIDEO_TYPES = [
   { value: "all", label: "All Videos", color: "bg-gray-100 text-gray-800" },
   { value: "uploaded", label: "Uploaded", color: "bg-blue-100 text-blue-800" },
@@ -133,14 +122,6 @@ const formatBytes = (bytes: number): string => {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-};
-
-const formatTime = (ms: number): string => {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${seconds % 60}s`;
 };
 
 // Enhanced statistics cards
@@ -283,41 +264,15 @@ export default function OptimizedAdminVideoManagement() {
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [showQuizInput, setShowQuizInput] = useState(false);
 
-  // Upload states - enhanced for chunked upload
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadCourse, setUploadCourse] = useState<number | "">("");
-  const [uploadLesson, setUploadLesson] = useState<number | "">("");
-  const [uploadTitle, setUploadTitle] = useState("");
-  const [uploadLanguage, setUploadLanguage] = useState<
-    "english" | "hindi" | "marathi"
-  >("english");
-  const [replaceExisting, setReplaceExisting] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
-  // Chunked upload state
-  const [chunkedUpload, setChunkedUpload] = useState<ChunkedUploadState>({
-    sessionId: null,
-    filename: "",
-    totalChunks: 0,
-    uploadedChunks: 0,
-    progress: 0,
-    status: "idle",
-  });
-
   // Audio management state
   const [showAudioSection, setShowAudioSection] = useState(false);
   const [lessonsWithAudio, setLessonsWithAudio] = useState<any[]>([]);
   const [audioLoading, setAudioLoading] = useState(false);
 
-  // External video states
-  const [externalUrl, setExternalUrl] = useState("");
-  const [externalTitle, setExternalTitle] = useState("");
-  const [externalDescription, setExternalDescription] = useState("");
-  const [externalCourse, setExternalCourse] = useState<number | "">("");
-  const [externalLesson, setExternalLesson] = useState<number | "">("");
-
   // Link video states
+  const [linkCourse, setLinkCourse] = useState<number | "">("");
   const [linkLesson, setLinkLesson] = useState<number | "">("");
+  const [linkReplaceExisting, setLinkReplaceExisting] = useState(false);
 
   // Refs for optimizations
   const videoGridRef = useRef<HTMLDivElement>(null);
@@ -409,8 +364,25 @@ export default function OptimizedAdminVideoManagement() {
 
         // Combine regular videos with unified videos
         const allVideos = [...response.videos, ...unifiedVideos];
+
+        // Calculate real stats from database response
+        const calculatedStats: EnhancedVideoStats = {
+          uploadedVideos: response.videos.filter((v: any) => v.type === "uploaded").length + unifiedVideos.length,
+          externalVideos: response.videos.filter((v: any) => v.type === "external").length,
+          totalVideos: allVideos.length,
+          storageUsed: response.stats?.storageUsed || 0,
+          originalStorageSize: response.stats?.originalStorageSize || 0,
+          spaceSaved: response.stats?.spaceSaved || 0,
+          compressionRatio: response.stats?.compressionRatio || 0,
+          videoStorageUsed: response.stats?.videoStorageUsed || 0,
+          videoOriginalSize: response.stats?.videoOriginalSize || 0,
+          videoSpaceSaved: response.stats?.videoSpaceSaved || 0,
+          avgCompressionRatio: response.stats?.avgCompressionRatio || 0,
+          avgProcessingTime: response.stats?.avgProcessingTime || 0,
+        };
+
         setVideos(allVideos);
-        setStats(response.stats);
+        setStats(calculatedStats);
         setCurrentPage(response.pagination.currentPage);
         setTotalPages(response.pagination.totalPages);
       } catch (err) {
@@ -516,15 +488,6 @@ export default function OptimizedAdminVideoManagement() {
   }, [showAudioSection, loadAudioLessons, lessonsWithAudio.length]);
 
   useEffect(() => {
-    if (typeof uploadCourse === "number") {
-      loadLessons(uploadCourse);
-    } else {
-      setLessons([]);
-      setUploadLesson("");
-    }
-  }, [uploadCourse, loadLessons]);
-
-  useEffect(() => {
     if (typeof unifiedCourse === "number") {
       loadLessons(unifiedCourse);
     } else {
@@ -534,229 +497,19 @@ export default function OptimizedAdminVideoManagement() {
   }, [unifiedCourse, loadLessons]);
 
   useEffect(() => {
-    if (typeof externalCourse === "number") {
-      loadLessons(externalCourse);
+    if (typeof linkCourse === "number") {
+      loadLessons(linkCourse);
     } else {
       setLessons([]);
-      setExternalLesson("");
+      setLinkLesson("");
     }
-  }, [externalCourse, loadLessons]);
-
-  // Reset states when closing modals
-  const resetUploadStates = useCallback(() => {
-    setUploadFile(null);
-    setUploadCourse("");
-    setUploadLesson("");
-    setUploadTitle("");
-    setUploadLanguage("english");
-    setReplaceExisting(false);
-    setUploading(false);
-    setChunkedUpload({
-      sessionId: null,
-      filename: "",
-      totalChunks: 0,
-      uploadedChunks: 0,
-      progress: 0,
-      status: "idle",
-    });
-  }, []);
-
-  const resetExternalStates = useCallback(() => {
-    setExternalUrl("");
-    setExternalTitle("");
-    setExternalDescription("");
-    setExternalCourse("");
-    setExternalLesson("");
-  }, []);
+  }, [linkCourse, loadLessons]);
 
   const resetLinkStates = useCallback(() => {
+    setLinkCourse("");
     setLinkLesson("");
+    setLinkReplaceExisting(false);
   }, []);
-
-  // Chunked upload implementation
-  const performChunkedUpload = useCallback(
-    async (file: File) => {
-      const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
-      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-      try {
-        // Initialize chunked upload
-        const initResponse = await api.admin.videos.initChunkedUpload({
-          filename: file.name,
-          mimeType: file.type,
-          totalSize: file.size,
-        });
-
-        const { sessionId } = initResponse.upload;
-
-        setChunkedUpload({
-          sessionId,
-          filename: file.name,
-          totalChunks,
-          uploadedChunks: 0,
-          progress: 0,
-          status: "uploading",
-        });
-
-        // Upload chunks
-        for (let i = 0; i < totalChunks; i++) {
-          const start = i * CHUNK_SIZE;
-          const end = Math.min(start + CHUNK_SIZE, file.size);
-          const chunk = file.slice(start, end);
-
-          await api.admin.videos.uploadChunk({
-            sessionId,
-            chunkIndex: i,
-            chunkData: chunk,
-          });
-
-          setChunkedUpload((prev) => ({
-            ...prev,
-            uploadedChunks: i + 1,
-            progress: ((i + 1) / totalChunks) * 100,
-          }));
-        }
-
-        // Complete upload
-        setChunkedUpload((prev) => ({ ...prev, status: "assembling" }));
-
-        const completeResponse = await api.admin.videos.completeChunkedUpload({
-          sessionId,
-          courseId: typeof uploadCourse === "number" ? uploadCourse : undefined,
-          lessonId: typeof uploadLesson === "number" ? uploadLesson : undefined,
-          title: uploadTitle || undefined,
-          replaceExisting,
-        });
-
-        setChunkedUpload((prev) => ({ ...prev, status: "completed" }));
-
-        return completeResponse;
-      } catch (err) {
-        setChunkedUpload((prev) => ({
-          ...prev,
-          status: "error",
-          error: err instanceof Error ? err.message : "Upload failed",
-        }));
-        throw err;
-      }
-    },
-    [uploadCourse, uploadLesson, uploadTitle, replaceExisting],
-  );
-
-  // Upload handlers - enhanced for chunked upload
-  const handleUpload = async () => {
-    if (!uploadFile) return;
-
-    setUploading(true);
-    try {
-      let response;
-
-      // If lesson and language are selected, use language-specific endpoint
-      if (typeof uploadLesson === "number" && uploadLesson > 0) {
-        const token = localStorage.getItem("token");
-        const API_BASE_URL =
-          process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5001/api";
-
-        const formData = new FormData();
-        formData.append("video", uploadFile);
-        formData.append("language", uploadLanguage);
-
-        const response = await fetch(
-          `${API_BASE_URL}/courses/${uploadCourse}/lessons/${uploadLesson}/upload-video`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            body: formData,
-          },
-        );
-
-        if (!response.ok) {
-          const errorData = await response
-            .json()
-            .catch(() => ({ message: "Upload failed" }));
-          throw new Error(errorData.message || "Failed to upload video");
-        }
-
-        const result = await response.json();
-        alert(
-          `${
-            uploadLanguage.charAt(0).toUpperCase() + uploadLanguage.slice(1)
-          } video uploaded successfully!\n\n` +
-            `Lesson: ${
-              lessons.find((l) => l.id === uploadLesson)?.title || "Unknown"
-            }\n` +
-            `Language: ${uploadLanguage}`,
-        );
-      } else {
-        // Use chunked upload for large files (>50MB)
-        if (uploadFile.size > 50 * 1024 * 1024) {
-          response = await performChunkedUpload(uploadFile);
-        } else {
-          // Regular upload for smaller files
-          response = await api.admin.videos.upload({
-            videoFile: uploadFile,
-            courseId:
-              typeof uploadCourse === "number" ? uploadCourse : undefined,
-            lessonId:
-              typeof uploadLesson === "number" ? uploadLesson : undefined,
-            title: uploadTitle || undefined,
-            replaceExisting,
-          });
-        }
-
-        // Show success message with optimization stats
-        if (response.optimization) {
-          const {
-            originalSizeMB,
-            compressedSizeMB,
-            spaceSavedMB,
-            compressionRatio,
-            processingTime,
-          } = response.optimization;
-          alert(
-            `Video uploaded successfully!\n\n` +
-              `Original size: ${originalSizeMB}MB\n` +
-              `Compressed size: ${compressedSizeMB}MB\n` +
-              `Space saved: ${spaceSavedMB}MB (${100 - compressionRatio}%)\n` +
-              `Processing time: ${formatTime(processingTime)}`,
-          );
-        }
-      }
-
-      setActiveModal(null);
-      resetUploadStates();
-      loadVideos(currentPage);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to upload video");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleAddExternal = async () => {
-    if (!externalUrl || !externalLesson) return;
-
-    try {
-      await api.admin.videos.addExternal({
-        courseId:
-          typeof externalCourse === "number" ? externalCourse : undefined,
-        lessonId: externalLesson as number,
-        videoUrl: externalUrl,
-        title: externalTitle || undefined,
-        description: externalDescription || undefined,
-      });
-
-      setActiveModal(null);
-      resetExternalStates();
-      loadVideos(currentPage);
-    } catch (err) {
-      alert(
-        err instanceof Error ? err.message : "Failed to add external video",
-      );
-    }
-  };
 
   const handleLinkVideo = async () => {
     if (!selectedVideo || !linkLesson) return;
@@ -764,7 +517,7 @@ export default function OptimizedAdminVideoManagement() {
     try {
       await api.admin.videos.linkToLesson(selectedVideo.id as number, {
         lessonId: linkLesson as number,
-        replaceExisting: replaceExisting,
+        replaceExisting: linkReplaceExisting,
       });
 
       setActiveModal(null);
@@ -1033,20 +786,6 @@ export default function OptimizedAdminVideoManagement() {
           >
             <Languages className="w-4 h-4" />
             Unified Upload
-          </button>
-          <button
-            onClick={() => setActiveModal("upload")}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            Upload Video
-          </button>
-          <button
-            onClick={() => setActiveModal("external")}
-            className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors flex items-center gap-2"
-          >
-            <ExternalLink className="w-4 h-4" />
-            Add External
           </button>
         </div>
       </div>
@@ -1339,364 +1078,8 @@ export default function OptimizedAdminVideoManagement() {
       )}
 
       {/* ============================================ */}
-      {/* MODALS - Upload, External, Link, Delete */}
+      {/* MODALS - Unified, Link, Delete */}
       {/* ============================================ */}
-
-      {/* Upload Modal */}
-      {activeModal === "upload" && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Upload Video
-              </h3>
-              <button
-                onClick={() => {
-                  setActiveModal(null);
-                  resetUploadStates();
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              {/* File Input */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Video File
-                </label>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setUploadFile(file);
-                      if (!uploadTitle) {
-                        setUploadTitle(file.name.replace(/\.[^/.]+$/, ""));
-                      }
-                    }
-                  }}
-                  className="block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-md file:border-0
-                    file:text-sm file:font-semibold
-                    file:bg-blue-50 file:text-blue-700
-                    hover:file:bg-blue-100
-                  "
-                />
-                {uploadFile && (
-                  <p className="mt-2 text-sm text-gray-600">
-                    Selected: {uploadFile.name} ({formatBytes(uploadFile.size)})
-                  </p>
-                )}
-              </div>
-
-              {/* Video Title */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Video Title (optional)
-                </label>
-                <input
-                  type="text"
-                  value={uploadTitle}
-                  onChange={(e) => setUploadTitle(e.target.value)}
-                  placeholder="Enter video title"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Course Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Course
-                </label>
-                <select
-                  value={uploadCourse}
-                  onChange={(e) => {
-                    setUploadCourse(
-                      e.target.value === "" ? "" : Number(e.target.value),
-                    );
-                    setUploadLesson("");
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a course</option>
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Lesson Selection */}
-              {uploadCourse && lessons.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Lesson
-                  </label>
-                  <select
-                    value={uploadLesson}
-                    onChange={(e) =>
-                      setUploadLesson(
-                        e.target.value === "" ? "" : Number(e.target.value),
-                      )
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Select a lesson (optional)</option>
-                    {lessons.map((lesson) => (
-                      <option key={lesson.id} value={lesson.id}>
-                        Lesson {lesson.orderIndex}: {lesson.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Video Language Selection */}
-              {uploadLesson && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Video Language *
-                  </label>
-                  <select
-                    value={uploadLanguage}
-                    onChange={(e) =>
-                      setUploadLanguage(
-                        e.target.value as "english" | "hindi" | "marathi",
-                      )
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="english">English</option>
-                    <option value="hindi">Hindi</option>
-                    <option value="marathi">Marathi</option>
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Select the language of this video. You can upload videos in
-                    other languages for the same lesson.
-                  </p>
-                </div>
-              )}
-
-              {/* Replace Existing */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="replaceExisting"
-                  checked={replaceExisting}
-                  onChange={(e) => setReplaceExisting(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label
-                  htmlFor="replaceExisting"
-                  className="text-sm text-gray-700"
-                >
-                  Replace existing video if lesson already has one
-                </label>
-              </div>
-
-              {/* Upload Progress */}
-              {uploading && (
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
-                    <span className="text-blue-700">
-                      Uploading and processing video...
-                    </span>
-                  </div>
-                  {chunkedUpload.status !== "idle" && (
-                    <div className="mt-2">
-                      <div className="w-full bg-blue-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full transition-all"
-                          style={{ width: `${chunkedUpload.progress}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-blue-600 mt-1">
-                        {chunkedUpload.status === "uploading" &&
-                          `Uploading: ${chunkedUpload.uploadedChunks}/${chunkedUpload.totalChunks} chunks`}
-                        {chunkedUpload.status === "assembling" &&
-                          "Processing video..."}
-                        {chunkedUpload.status === "completed" && "Complete!"}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setActiveModal(null);
-                  resetUploadStates();
-                }}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-                disabled={uploading}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpload}
-                disabled={!uploadFile || uploading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {uploading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    Upload Video
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* External Video Modal */}
-      {activeModal === "external" && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Add External Video
-              </h3>
-              <button
-                onClick={() => {
-                  setActiveModal(null);
-                  resetExternalStates();
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              {/* Video URL */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Video URL
-                </label>
-                <input
-                  type="url"
-                  value={externalUrl}
-                  onChange={(e) => setExternalUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-
-              {/* Video Title */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Title (optional)
-                </label>
-                <input
-                  type="text"
-                  value={externalTitle}
-                  onChange={(e) => setExternalTitle(e.target.value)}
-                  placeholder="Enter video title"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description (optional)
-                </label>
-                <textarea
-                  value={externalDescription}
-                  onChange={(e) => setExternalDescription(e.target.value)}
-                  placeholder="Enter video description"
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-
-              {/* Course Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Course
-                </label>
-                <select
-                  value={externalCourse}
-                  onChange={(e) => {
-                    setExternalCourse(
-                      e.target.value === "" ? "" : Number(e.target.value),
-                    );
-                    setExternalLesson("");
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="">Select a course</option>
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Lesson Selection */}
-              {externalCourse && lessons.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Lesson
-                  </label>
-                  <select
-                    value={externalLesson}
-                    onChange={(e) =>
-                      setExternalLesson(
-                        e.target.value === "" ? "" : Number(e.target.value),
-                      )
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="">Select a lesson</option>
-                    {lessons.map((lesson) => (
-                      <option key={lesson.id} value={lesson.id}>
-                        Lesson {lesson.orderIndex}: {lesson.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setActiveModal(null);
-                  resetExternalStates();
-                }}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddExternal}
-                disabled={!externalUrl || !externalLesson}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Add External Video
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Link Video Modal */}
       {activeModal === "link" && selectedVideo && (
@@ -1738,9 +1121,9 @@ export default function OptimizedAdminVideoManagement() {
                   Select Course
                 </label>
                 <select
-                  value={uploadCourse}
+                  value={linkCourse}
                   onChange={(e) => {
-                    setUploadCourse(
+                    setLinkCourse(
                       e.target.value === "" ? "" : Number(e.target.value),
                     );
                     setLinkLesson("");
@@ -1757,7 +1140,7 @@ export default function OptimizedAdminVideoManagement() {
               </div>
 
               {/* Lesson Selection */}
-              {uploadCourse && lessons.length > 0 && (
+              {linkCourse && lessons.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Lesson
@@ -1791,8 +1174,8 @@ export default function OptimizedAdminVideoManagement() {
                 <input
                   type="checkbox"
                   id="linkReplaceExisting"
-                  checked={replaceExisting}
-                  onChange={(e) => setReplaceExisting(e.target.checked)}
+                  checked={linkReplaceExisting}
+                  onChange={(e) => setLinkReplaceExisting(e.target.checked)}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <label
@@ -2201,9 +1584,7 @@ export default function OptimizedAdminVideoManagement() {
                         return;
                       }
                       if (q.options.some((opt) => !opt.trim())) {
-                        alert(
-                          "All options must be filled for each question"
-                        );
+                        alert("All options must be filled for each question");
                         return;
                       }
                     }
@@ -2231,12 +1612,17 @@ export default function OptimizedAdminVideoManagement() {
                       }));
                       const quizJSON = JSON.stringify(quizContent);
                       formData.append("quizContent", quizJSON);
-                      console.log(`📤 Quiz upload: ${quizQuestions.length} questions`, {
-                        questionsCount: quizQuestions.length,
-                        jsonString: quizJSON.substring(0, 100) + "..."
-                      });
+                      console.log(
+                        `📤 Quiz upload: ${quizQuestions.length} questions`,
+                        {
+                          questionsCount: quizQuestions.length,
+                          jsonString: quizJSON.substring(0, 100) + "...",
+                        },
+                      );
                     } else {
-                      console.log(`📤 Upload without quiz: showQuizInput=${showQuizInput}, questionCount=${quizQuestions.length}`);
+                      console.log(
+                        `📤 Upload without quiz: showQuizInput=${showQuizInput}, questionCount=${quizQuestions.length}`,
+                      );
                     }
 
                     const apiBaseUrl =
@@ -2266,7 +1652,7 @@ export default function OptimizedAdminVideoManagement() {
                     alert(
                       showQuizInput && quizQuestions.length > 0
                         ? `Unified video and quiz (${quizQuestions.length} questions) uploaded successfully!`
-                        : "Unified video uploaded successfully!"
+                        : "Unified video uploaded successfully!",
                     );
                     setActiveModal(null);
                     setQuizQuestions([]);

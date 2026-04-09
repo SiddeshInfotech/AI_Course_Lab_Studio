@@ -13,7 +13,7 @@ export function useElectron() {
 
     setIsElectron(hasElectronAPI);
 
-    if (hasElectronAPI) {
+    if (hasElectronAPI && window.electronAPI) {
       // Get device ID
       window.electronAPI.getDeviceId().then(setDeviceId);
 

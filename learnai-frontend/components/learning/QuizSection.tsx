@@ -225,7 +225,7 @@ export default function QuizSection({
           </div>
           <p className="text-sm text-green-700 mt-1">
             You scored {score} out of {questions.length} (
-            {Math.round((score / questions.length) * 100)}%)
+            {Math.round(((score ?? 0) / questions.length) * 100)}%)
           </p>
           {onReset && (
             <button

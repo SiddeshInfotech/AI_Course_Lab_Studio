@@ -1,11 +1,11 @@
-import { app, BrowserWindow, Menu, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, desktopCapturer } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import isDev from "electron-is-dev";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
-import { exec } from "child_process";
+import { exec, execSync } from "child_process";
 import { setInterval, clearInterval } from "timers";
 
 // ==================== SECURITY CONFIGURATIONS ====================
@@ -27,21 +27,209 @@ app.commandLine.appendSwitch("disable-print-preview");
 
 let mainWindow: BrowserWindow | null = null;
 
-// Get device fingerprint for licensing
-function getDeviceFingerprint(): string {
-  const networkInterfaces = os.networkInterfaces();
-  const macAddress = Object.values(networkInterfaces)
-    .flat()
-    .find((iface) => iface?.mac && iface.mac !== "00:00:00:00:00:00")?.mac;
+// ==================== RECORDING SOFTWARE LIST ====================
 
+const KNOWN_RECORDING_SOFTWARE: Record<string, string[]> = {
+  darwin: [
+    "QuickTime Player",
+    "ScreenFlow",
+    "OBS",
+    "Camtasia",
+    "ShadowPlay",
+    "Fraps",
+    "ScreenCapture",
+    "screencap",
+    "recordmydesktop",
+    "peek",
+    "kooha",
+    "vokoscreen",
+    "kazam",
+    "simplescreenrecorder",
+  ],
+  win32: [
+    "obs64",
+    "obs32",
+    "obs.exe",
+    "GameBarPresenceWriter",
+    "xboxgips",
+    "fraps",
+    "fraps.exe",
+    "camtasia",
+    "camtasia.exe",
+    "screencapture",
+    "ShareX",
+    "ShareX.exe",
+    "Lightshot",
+    "Lightshot.exe",
+    "Bandicam",
+    "bandicam.exe",
+    "Action",
+    "action.exe",
+    "Dxtory",
+    "dxtory.exe",
+    "Snagit",
+    "snagit.exe",
+    "Movavi",
+    "movavi.exe",
+    "ScreenRec",
+    "ScreenRec.exe",
+    "Bandizip",
+    "bandizip.exe",
+  ],
+  linux: [
+    "obs",
+    "obs-studio",
+    "obs64",
+    "kazam",
+    "simplescreenrecorder",
+    "ffmpeg",
+    "recordmydesktop",
+    "vlc",
+    "kooha",
+    "peek",
+    "vokoscreen",
+    "vokoscreen-ng",
+    "blue-recorder",
+    "green-recorder",
+    "spectacle",
+    "flameshot",
+    "gscreenshot",
+  ],
+};
+
+// ==================== HARDWARE FINGERPRINTING ====================
+
+// Get MAC address
+function getMacAddress(): string {
+  const networkInterfaces = os.networkInterfaces();
+  const macs: string[] = [];
+  
+  for (const ifaces of Object.values(networkInterfaces)) {
+    if (!ifaces) continue;
+    for (const iface of ifaces) {
+      if (iface.mac && iface.mac !== "00:00:00:00:00:00" && !iface.internal) {
+        macs.push(iface.mac);
+      }
+    }
+  }
+  
+  if (macs.length === 0) return "00:00:00:00:00:00";
+  macs.sort();
+  return macs[0];
+}
+
+// Get System UUID (more robust)
+function getSystemUUID(): string {
+  try {
+    if (process.platform === "win32") {
+      // Try to get MachineGuid from registry
+      const { execSync } = require("child_process");
+      const result = execSync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+        { encoding: "utf8" }
+      );
+      const match = result.match(/MachineGuid\s+REG_SZ\s+(\S+)/);
+      if (match) return match[1].trim();
+    } else if (process.platform === "darwin" || process.platform === "linux") {
+      // Try /etc/machine-id on Linux
+      if (fs.existsSync("/etc/machine-id")) {
+        return fs.readFileSync("/etc/machine-id", "utf8").trim();
+      }
+      // Try platform-specific methods on macOS
+      if (process.platform === "darwin") {
+        const { execSync } = require("child_process");
+        return execSync("ioreg -rd1 -c IOPlatformExpertDevice -a", { encoding: "utf8" })
+          .toString()
+          .match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/)?.[1] || "";
+      }
+    }
+  } catch (e) {
+    // Fall through
+  }
+  return "";
+}
+
+// Get disk serial (for additional binding)
+function getDiskSerial(): string {
+  try {
+    if (process.platform === "win32") {
+      const { execSync } = require("child_process");
+      // Try to get volume serial
+      const result = execSync(
+        'vol C:',
+        { encoding: "utf8" }
+      );
+      const match = result.match(/Volume Serial Number is\s+(\S+)/);
+      if (match) return match[1].trim();
+    } else if (process.platform === "linux") {
+      // Try common block device serials
+      const serials = ["/sys/block/sda/device/serial", "/sys/block/nvme0n1/device/serial"];
+      for (const serialPath of serials) {
+        if (fs.existsSync(serialPath)) {
+          return fs.readFileSync(serialPath, "utf8").trim();
+        }
+      }
+    }
+  } catch (e) {
+    // Fall through
+  }
+  return "";
+}
+
+// Get enhanced device fingerprint
+function getDeviceFingerprint(): string {
+  const mac = getMacAddress().replace(/:/g, "");
+  const uuid = getSystemUUID();
+  const disk = getDiskSerial();
   const cpuCount = os.cpus().length;
   const platformInfo = `${os.platform()}-${os.arch()}`;
-
-  const fingerprint = `${macAddress}-${cpuCount}-${platformInfo}`;
-  const hash = crypto.createHash("sha256").update(fingerprint).digest("hex");
-
-  return hash.substring(0, 16);
+  
+  // Combine: disk serial | UUID | MAC | CPU count
+  const composite = (disk || "NOSSD") + "|" + 
+                    (uuid || "NOUUID") + "|" + 
+                    (mac || "NOMAC") + "|" + 
+                    cpuCount + "|" + 
+                    platformInfo;
+  
+  const hash = crypto.createHash("sha256").update(composite).digest("hex");
+  return hash.substring(0, 32);
 }
+
+// Check if running in VM
+function isVirtualMachine(): boolean {
+  try {
+    const fingerprint = getDeviceFingerprint().toLowerCase();
+    const vmIndicators = ["vbox", "virtualbox", "vmware", "qemu", "kvm", "parallels"];
+    
+    if (process.platform === "darwin") {
+      // Check for MacVM indicators using system_profiler
+      const { execSync } = require("child_process");
+      const result = execSync("system_profiler SPHardwareDataType", { encoding: "utf8" });
+      return vmIndicators.some(ind => result.toLowerCase().includes(ind));
+    } else if (process.platform === "win32") {
+      // Check systeminfo for VM
+      const { execSync } = require("child_process");
+      const result = execSync("systeminfo", { encoding: "utf8", timeout: 5000 });
+      return vmIndicators.some(ind => result.toLowerCase().includes(ind));
+    } else if (process.platform === "linux") {
+      // Check dmidecode
+      try {
+        const { execSync } = require("child_process");
+        const result = execSync("dmidecode", { encoding: "utf8", timeout: 5000 });
+        return vmIndicators.some(ind => result.toLowerCase().includes(ind));
+      } catch {
+        // Fallback: check /proc/cpuinfo
+        const cpuinfo = fs.readFileSync("/proc/cpuinfo", "utf8").toLowerCase();
+        return vmIndicators.some(ind => cpuinfo.includes(ind));
+      }
+    }
+  } catch (e) {
+    console.log("[Security] VM detection error:", e);
+  }
+  return false;
+}
+
+// ==================== END HARDWARE FINGERPRINTING ====================
 
 // Store device fingerprint
 function getOrCreateDeviceId(): string {
@@ -130,6 +318,38 @@ function createWindow() {
     },
     icon: iconPath,
   });
+
+  // =====================================================
+  // SCREEN CAPTURE PROTECTION
+  // =====================================================
+  
+  // macOS: Use Electron's built-in content protection
+  if (process.platform === "darwin") {
+    mainWindow.setContentProtection(true);
+    console.log("[Electron] macOS content protection enabled");
+  }
+
+  // Windows: Attempt to use SetWindowDisplayAffinity via native method
+  if (process.platform === "win32") {
+    // This requires the app to run with certain flags on Windows
+    // We'll try to enable it after the window is ready
+    mainWindow.once("ready-to-show", () => {
+      try {
+        // @ts-ignore - This is a Windows-specific Electron method
+        if (mainWindow.setContentProtection) {
+          // @ts-ignore
+          mainWindow.setContentProtection(true);
+          console.log("[Electron] Windows content protection enabled");
+        }
+      } catch (e) {
+        console.log("[Electron] Windows content protection not available:", e);
+      }
+    });
+  }
+
+  // =====================================================
+  // END SCREEN CAPTURE PROTECTION
+  // =====================================================
 
   // Allow video fullscreen
   mainWindow.webContents.setWindowOpenHandler(() => {
@@ -250,45 +470,79 @@ function createWindow() {
     },
   );
 
-  // Recording software detection (adds friction but not full protection)
-  const KNOWN_RECORDING_SOFTWARE: Record<string, string[]> = {
-    darwin: ["QuickTime", "ScreenFlow", "OBS", "Camtasia"],
-    win32: [
-      "obs64",
-      "obs32",
-      "GameBarPresenceWriter",
-      "fraps",
-      "camtasia",
-      "ShareX",
-      "Lightshot",
-    ],
+  // =====================================================
+  // RECORDING SOFTWARE DETECTION AND BLOCKING
+  // =====================================================
+  
+  // Kill recording processes
+  const killRecordingSoftware = (processName: string): boolean => {
+    const platform = process.platform;
+    
+    try {
+      if (platform === "win32") {
+        execSync(`taskkill /F /IM "${processName}" /T`, { stdio: "ignore" });
+      } else if (platform === "darwin" || platform === "linux") {
+        execSync(`pkill -9 "${processName}"`, { stdio: "ignore" });
+      }
+      console.log(`[Security] Killed recording process: ${processName}`);
+      return true;
+    } catch (e) {
+      return false;
+    }
   };
 
   const checkForRecordingSoftware = () => {
-    const platform = process.platform as string;
+    const platform = process.platform as keyof typeof KNOWN_RECORDING_SOFTWARE;
     const softwareList = KNOWN_RECORDING_SOFTWARE[platform];
 
     if (!softwareList) return;
 
-    const searchPattern = softwareList.join("|").replace(/\s/g, "");
     const cmd =
       platform === "darwin"
-        ? `pgrep -fl "${searchPattern}"`
-        : `tasklist | findstr /i "${softwareList.join(" ")}"`;
+        ? `ps -A -o comm=`
+        : platform === "linux"
+        ? `ps -A -o comm=`
+        : `tasklist /FO CSV /NH`;
 
     exec(cmd, (error, stdout) => {
-      if (stdout && stdout.trim()) {
-        console.warn("[Security] Recording software detected:", stdout);
+      if (error || !stdout) return;
+
+      const lines = stdout.toLowerCase().split(/\r?\n/);
+      const detectedProcesses: string[] = [];
+
+      for (const processName of softwareList) {
+        const searchName = processName.toLowerCase().replace(".exe", "");
+        
+        const isRunning = lines.some((line) => {
+          if (platform === "win32") {
+            return line.includes(searchName);
+          } else {
+            return line.trim() === searchName || line.includes(searchName);
+          }
+        });
+
+        if (isRunning) {
+          console.warn(`[Security] Recording software detected: ${processName}`);
+          detectedProcesses.push(processName);
+        }
+      }
+
+      if (detectedProcesses.length > 0) {
         mainWindow?.webContents.send("recording-detected", {
           detected: true,
+          processes: detectedProcesses,
           timestamp: Date.now(),
         });
       }
     });
   };
 
-  // Check every 3 seconds
-  const recordingCheckInterval = setInterval(checkForRecordingSoftware, 3000);
+  // Check every 2 seconds
+  const recordingCheckInterval = setInterval(checkForRecordingSoftware, 2000);
+
+  // =====================================================
+  // END RECORDING SOFTWARE DETECTION
+  // =====================================================
 
   const syncRendererFullscreenState = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -367,6 +621,51 @@ ipcMain.handle("is-window-fullscreen", () => {
   }
 
   return mainWindow.isFullScreen();
+});
+
+// IPC handlers for security features
+ipcMain.handle("get-hardware-id", () => {
+  return getDeviceFingerprint();
+});
+
+ipcMain.handle("is-vm-detected", () => {
+  return isVirtualMachine();
+});
+
+ipcMain.handle("check-recording-active", async () => {
+  return new Promise((resolve) => {
+    const platform = process.platform as keyof typeof KNOWN_RECORDING_SOFTWARE;
+    const softwareList = KNOWN_RECORDING_SOFTWARE[platform];
+    
+    if (!softwareList) {
+      resolve(false);
+      return;
+    }
+
+    const cmd = platform === "darwin" || platform === "linux"
+      ? `ps -A -o comm=`
+      : `tasklist /FO CSV /NH`;
+
+    exec(cmd, (error, stdout) => {
+      if (error || !stdout) {
+        resolve(false);
+        return;
+      }
+      
+      const lines = stdout.toLowerCase().split(/\r?\n/);
+      const isRecording = softwareList.some((proc) => {
+        const searchName = proc.toLowerCase().replace(".exe", "");
+        return lines.some((line) => {
+          if (platform === "win32") {
+            return line.includes(searchName);
+          }
+          return line.trim() === searchName || line.includes(searchName);
+        });
+      });
+      
+      resolve(isRecording);
+    });
+  });
 });
 
 // Security: Disable navigation to external sites
