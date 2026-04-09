@@ -94,7 +94,12 @@ const getVideoUrlByLanguage = (lesson, preferredLanguage) => {
  */
 const getAudioTracks = (lesson) => {
   if (!lesson.audioTracks) return [];
-  return safeJsonParse(lesson.audioTracks, []);
+  const tracks = safeJsonParse(lesson.audioTracks, []);
+  // Transform audioUrl to url for frontend compatibility
+  return tracks.map(track => ({
+    ...track,
+    url: track.audioUrl || track.url
+  }));
 };
 
 /**
@@ -329,6 +334,9 @@ export const getLessonDetails = async (userId, lessonId) => {
       lessonProgress: {
         where: { userId: parseInt(userId) },
       },
+      lessonActivities: {
+        where: { userId: parseInt(userId) },
+      },
       course: true,
     },
   });
@@ -338,6 +346,7 @@ export const getLessonDetails = async (userId, lessonId) => {
   }
 
   const isCompleted = lesson.lessonProgress.length > 0 && lesson.lessonProgress[0].completed;
+  const activity = lesson.lessonActivities.length > 0 ? lesson.lessonActivities[0] : null;
 
   return {
     id: lesson.id,
@@ -359,6 +368,11 @@ export const getLessonDetails = async (userId, lessonId) => {
     objectives: safeJsonParse(lesson.objectives, []),
     completed: isCompleted,
     orderIndex: lesson.orderIndex,
+    // Video/Quiz progress from LessonActivity
+    videoCompleted: activity?.videoCompleted || false,
+    quizCompleted: activity?.quizCompleted || false,
+    quizScore: activity?.quizScore || null,
+    quizStarted: activity?.quizStarted || false,
     course: {
       id: lesson.course.id,
       title: lesson.course.title,

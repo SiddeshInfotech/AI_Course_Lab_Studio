@@ -33,7 +33,11 @@ interface CurrentLesson {
   content: string | null;
   videoUrl: string | null;
   unifiedVideoUrl?: string | null;
-  audioTracks?: string | null;
+  audioTracks?: Array<{
+    language: string;
+    label: string;
+    url: string;
+  }> | null;
   objectives: string[];
   orderIndex: number;
   hasQuiz: boolean;
@@ -206,13 +210,20 @@ export default function LearningPage() {
   }, [isAuthenticated, authLoading, courseId, fetchCurriculum, router]);
 
   const handleVideoComplete = useCallback(async () => {
-    if (!currentLesson || videoCompleted) return;
+    console.log("📹 handleVideoComplete called, currentLesson:", currentLesson?.id, "videoCompleted:", videoCompleted);
+    if (!currentLesson || videoCompleted) {
+      console.log("⏭️ Skipping - no current lesson or already completed");
+      return;
+    }
     try {
+      console.log("📡 Calling updateVideoProgress API for lesson:", currentLesson.id);
       await updateVideoProgress(currentLesson.id);
       setVideoCompleted(true);
+      console("✅ Video progress updated, refreshing curriculum...");
       await fetchCurriculum();
+      console.log("✅ Curriculum refreshed");
     } catch (err) {
-      console.error("Failed to update video progress:", err);
+      console.error("❌ Failed to update video progress:", err);
     }
   }, [currentLesson, videoCompleted, updateVideoProgress, setVideoCompleted, fetchCurriculum]);
 
@@ -266,10 +277,12 @@ export default function LearningPage() {
       setQuizCompleted(lesson.quizCompleted);
       setQuizScore(null);
       setQuizSubmitted(false);
+
+      router.replace(`/learning?courseId=${courseId}&lessonOrderIndex=${lesson.orderIndex}`);
     } catch (err) {
       console.error("Failed to load lesson:", err);
     }
-  }, [courseId, curriculum, setVideoCompleted, setQuizCompleted, setQuizScore, setQuizSubmitted]);
+  }, [courseId, curriculum, setVideoCompleted, setQuizCompleted, setQuizScore, setQuizSubmitted, router]);
 
   const handleGoToNextLesson = useCallback(async () => {
     if (!courseId || !currentLesson) return;
@@ -365,29 +378,11 @@ export default function LearningPage() {
     );
   }
 
-  const videoUrl = currentLesson?.unifiedVideoUrl || currentLesson?.videoUrl;
+  const videoUrl = currentLesson?.unifiedVideoUrl || currentLesson?.videoUrl || "";
   const watermarkText = `${user?.email || user?.username || "Protected"} | ${watermarkTimeRef.current}`;
   
-  // Parse audio tracks from lesson data (backend sends parsed array)
-  const parseAudioTracks = (): AudioTrack[] => {
-    if (!currentLesson?.audioTracks) return [];
-    console.log("Audio tracks raw:", currentLesson.audioTracks);
-    // Backend already returns parsed array, but also try parsing if string
-    if (Array.isArray(currentLesson.audioTracks)) {
-      console.log("Audio tracks is array, length:", currentLesson.audioTracks.length);
-      return currentLesson.audioTracks as AudioTrack[];
-    }
-    try {
-      const parsed = JSON.parse(currentLesson.audioTracks as string);
-      console.log("Audio tracks parsed:", parsed);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-  const audioTracks = parseAudioTracks();
-  console.log("Final audioTracks:", audioTracks);
-  console.log("videoUrl:", videoUrl);
+  // Audio tracks from lesson - already parsed by backend
+  const audioTracks: AudioTrack[] = currentLesson?.audioTracks || [];
 
   return (
     <div className="h-screen bg-[#F8FAFC] flex flex-col font-sans text-slate-900 overflow-hidden">

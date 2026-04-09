@@ -650,7 +650,11 @@ export const api = {
           content: string | null;
           videoUrl: string | null;
           unifiedVideoUrl?: string | null;
-          audioTracks?: string | null | any[];
+          audioTracks?: Array<{
+            language: string;
+            label: string;
+            url: string;
+          }> | null;
           languages?: {
             english?: string | null;
             hindi?: string | null;

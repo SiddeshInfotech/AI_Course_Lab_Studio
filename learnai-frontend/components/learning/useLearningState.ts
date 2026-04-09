@@ -53,14 +53,16 @@ export function useLearningState(initialLessonId?: number): UseLearningStateRetu
   const updateVideoProgress = useCallback(async (lessonId: number) => {
     try {
       setIsUpdatingProgress(true);
+      console.log("📡 API call: updateVideoProgress for lesson:", lessonId);
       await api.learning.updateVideoProgress(lessonId, {
         videoStarted: true,
         videoCompleted: true,
         videoWatchTime: 0,
       });
+      console.log("✅ API: video progress updated successfully");
       setVideoCompleted(true);
     } catch (err) {
-      console.error("Failed to update video progress:", err);
+      console.error("❌ API: Failed to update video progress:", err);
       setError("Failed to update video progress");
     } finally {
       setIsUpdatingProgress(false);

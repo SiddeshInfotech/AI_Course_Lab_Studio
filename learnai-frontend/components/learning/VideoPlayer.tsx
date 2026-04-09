@@ -9,10 +9,8 @@ import {
   Volume2,
   VolumeX,
   Loader,
-  AlertTriangle,
   Languages,
 } from "lucide-react";
-import { api } from "@/lib/api";
 
 export interface AudioTrack {
   language: string;
@@ -40,10 +38,10 @@ export interface VideoPlayerHandle {
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   ({ videoUrl, title, watermarkText, audioTracks, onVideoComplete, onProgress, className = "", autoPlay = false }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const audioRef = useRef<HTMLAudioElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const progressRef = useRef<HTMLDivElement>(null);
     const hasCalledCompleteRef = useRef(false);
-    const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const watermarkRef = useRef<HTMLDivElement | null>(null);
     const watermarkAnimRef = useRef<number | null>(null);
 
@@ -57,60 +55,32 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showControls, setShowControls] = useState(true);
     const [isLimitExceeded, setIsLimitExceeded] = useState(false);
-    const [remainingTime, setRemainingTime] = useState<number>(0);
-    const [isCheckingLimit, setIsCheckingLimit] = useState(false);
     const [selectedTrackIndex, setSelectedTrackIndex] = useState(0);
     const [showAudioSelector, setShowAudioSelector] = useState(false);
     const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Audio tracks available for language switching
     const hasAudioTracks = audioTracks && audioTracks.length > 0;
-    const currentVideoUrl = hasAudioTracks ? audioTracks[selectedTrackIndex].url : videoUrl;
-    console.log("VideoPlayer - videoUrl:", videoUrl, "hasAudioTracks:", hasAudioTracks, "currentVideoUrl:", currentVideoUrl);
+    const currentAudioUrl = hasAudioTracks ? audioTracks[selectedTrackIndex]?.url : null;
+    const hasMultipleLanguages = hasAudioTracks && audioTracks.length > 1;
 
-    const checkUsageLimit = async () => {
-      try {
-        setIsCheckingLimit(true);
-        const usageData = await api.usage.getStatus();
-        setRemainingTime(usageData.remainingSeconds);
-        setIsLimitExceeded(usageData.isLocked);
-        return !usageData.isLocked;
-      } catch (error) {
-        console.error("Failed to check usage limit:", error);
-        return true;
-      } finally {
-        setIsCheckingLimit(false);
-      }
-    };
+    // Video is always from videoUrl prop (unifiedVideoUrl)
+    // Audio comes from selected audio track
+    const videoSourceUrl = videoUrl;
 
+    // Simplified - skip usage limit checks for now
+    const checkUsageLimit = async () => true;
+    
     const sendHeartbeat = async () => {
-      try {
-        const result = await api.usage.sendHeartbeat();
-        setRemainingTime(result.remainingSeconds);
-        if (result.isLocked) {
-          setIsLimitExceeded(true);
-          const video = videoRef.current;
-          if (video) {
-            video.pause();
-          }
-        }
-      } catch (error) {
-        console.error("Failed to send heartbeat:", error);
-      }
+      // Skip heartbeat for now
     };
 
     const startHeartbeat = () => {
-      if (heartbeatIntervalRef.current) return;
-      sendHeartbeat();
-      heartbeatIntervalRef.current = setInterval(() => {
-        sendHeartbeat();
-      }, 30000);
+      // Skip heartbeat for now
     };
 
     const stopHeartbeat = () => {
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-        heartbeatIntervalRef.current = null;
-      }
+      // Skip heartbeat for now
     };
 
     useImperativeHandle(ref, () => ({
@@ -204,13 +174,31 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
     }, [watermarkText]);
 
+    // Sync audio when language changes while video is playing
+    useEffect(() => {
+      if (audioRef.current && currentAudioUrl && videoRef.current) {
+        const videoTime = videoRef.current.currentTime;
+        audioRef.current.currentTime = videoTime;
+        if (isPlaying) {
+          audioRef.current.play().catch(console.error);
+        }
+      }
+    }, [selectedTrackIndex, currentAudioUrl, isPlaying]);
+
+    // Reset completion flag when video source changes (new lesson)
+    useEffect(() => {
+      hasCalledCompleteRef.current = false;
+      console.log("🔄 Video source changed, reset completion flag");
+    }, [videoSourceUrl]);
+
     const handlePlayPause = async () => {
       const video = videoRef.current;
+      const audio = audioRef.current;
       if (!video) return;
 
       if (isPlaying) {
         video.pause();
-        stopHeartbeat();
+        if (audio) audio.pause();
       } else {
         const canPlay = await checkUsageLimit();
         if (!canPlay) {
@@ -221,7 +209,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           console.error("Play failed:", err);
           setError("Failed to play video. Please try again.");
         });
-        startHeartbeat();
+        // Also play the audio
+        if (audio && currentAudioUrl) {
+          audio.currentTime = video.currentTime;
+          audio.volume = volume;
+          audio.play().catch(console.error);
+        }
       }
     };
 
@@ -232,9 +225,24 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const progress = (video.currentTime / video.duration) * 100;
       onProgress?.(progress);
 
+      // Video completion detection at 90%
       if (video.duration > 0 && progress >= 90 && !hasCalledCompleteRef.current) {
+        console.log("🎬 Video progress reached 90%, marking as complete");
         hasCalledCompleteRef.current = true;
         onVideoComplete?.();
+      }
+    };
+
+    // Handle audio completion as backup
+    const handleAudioEnded = () => {
+      const video = videoRef.current;
+      if (video && !hasCalledCompleteRef.current) {
+        console.log("🎵 Audio ended, checking if video is also complete");
+        if (video.duration > 0 && (video.currentTime / video.duration) >= 0.9) {
+          console.log("🎬 Video complete via audio end");
+          hasCalledCompleteRef.current = true;
+          onVideoComplete?.();
+        }
       }
     };
 
@@ -243,6 +251,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (!video) return;
       setDuration(video.duration);
       setIsLoading(false);
+      // Sync audio duration with video
+      if (audioRef.current && currentAudioUrl) {
+        audioRef.current.volume = volume;
+      }
     };
 
     const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -252,7 +264,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       const rect = progress.getBoundingClientRect();
       const pos = (e.clientX - rect.left) / rect.width;
-      video.currentTime = pos * video.duration;
+      const newTime = pos * video.duration;
+      video.currentTime = newTime;
+      // Also seek audio to match
+      if (audioRef.current) {
+        audioRef.current.currentTime = newTime;
+      }
     };
 
     const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -260,19 +277,21 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setVolume(newVolume);
       if (videoRef.current) {
         videoRef.current.volume = newVolume;
-        setIsMuted(newVolume === 0);
       }
+      if (audioRef.current) {
+        audioRef.current.volume = newVolume;
+      }
+      setIsMuted(newVolume === 0);
     };
 
     const toggleMute = () => {
-      const video = videoRef.current;
-      if (!video) return;
       if (isMuted) {
-        video.volume = volume || 1;
-        video.muted = false;
+        if (videoRef.current) videoRef.current.muted = false;
+        if (audioRef.current) audioRef.current.muted = false;
         setIsMuted(false);
       } else {
-        video.muted = true;
+        if (videoRef.current) videoRef.current.muted = true;
+        if (audioRef.current) audioRef.current.muted = true;
         setIsMuted(true);
       }
     };
@@ -318,20 +337,42 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onMouseLeave={() => isPlaying && setShowControls(false)}
         onContextMenu={(e) => e.preventDefault()}
       >
+        {/* Main video element - muted, plays video without original audio */}
         <video
           ref={videoRef}
-          src={currentVideoUrl}
+          src={videoSourceUrl}
           className="w-full aspect-video"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          onTimeUpdate={handleTimeUpdate}
+          muted
+          onPlay={() => { 
+            console.log("Video playing"); 
+            setIsPlaying(true);
+            // Sync audio with video
+            if (audioRef.current && currentAudioUrl) {
+              audioRef.current.currentTime = videoRef.current?.currentTime || 0;
+              audioRef.current.play();
+            }
+          }}
+          onPause={() => { 
+            setIsPlaying(false);
+            if (audioRef.current) audioRef.current.pause();
+          }}
+          onTimeUpdate={() => {
+            handleTimeUpdate();
+            // Sync audio position with video
+            if (audioRef.current && videoRef.current) {
+              const videoTime = videoRef.current.currentTime;
+              if (Math.abs(audioRef.current.currentTime - videoTime) > 0.5) {
+                audioRef.current.currentTime = videoTime;
+              }
+            }
+          }}
           onLoadedMetadata={handleLoadedMetadata}
-          onWaiting={() => setIsLoading(true)}
-          onCanPlay={() => setIsLoading(false)}
-          onError={() => setError("Failed to load video")}
+          onWaiting={() => { console.log("Video waiting..."); setIsLoading(true); }}
+          onCanPlay={() => { console.log("Video can play"); setIsLoading(false); }}
+          onError={(e) => { console.log("Video error:", e); setError("Failed to load video"); }}
           onEnded={() => {
             setIsPlaying(false);
-            stopHeartbeat();
+            if (audioRef.current) audioRef.current.pause();
             if (!hasCalledCompleteRef.current) {
               hasCalledCompleteRef.current = true;
               onVideoComplete?.();
@@ -339,6 +380,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }}
           playsInline
         />
+        
+        {/* Audio element - hidden, plays the selected language audio */}
+        {currentAudioUrl && (
+          <audio
+            ref={audioRef}
+            src={currentAudioUrl}
+            muted={isMuted}
+            preload="auto"
+            onEnded={handleAudioEnded}
+          />
+        )}
 
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20">
@@ -393,7 +445,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             <div className="flex items-center gap-3">
               <button
                 onClick={handlePlayPause}
-                disabled={isLimitExceeded || isCheckingLimit}
+                disabled={isLimitExceeded}
                 className="p-2 rounded-full hover:bg-white/20 transition-colors disabled:opacity-50"
               >
                 {isPlaying ? (
@@ -428,7 +480,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             </div>
 
             <div className="flex items-center gap-2">
-              {hasAudioTracks && (
+              {hasMultipleLanguages && (
                 <div className="relative">
                   <button
                     onClick={() => setShowAudioSelector(!showAudioSelector)}
@@ -437,20 +489,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   >
                     <Languages className="w-4 h-4 text-white" />
                     <span className="text-white text-xs">
-                      {audioTracks[selectedTrackIndex].label}
+                      {audioTracks?.[selectedTrackIndex]?.label || "Language"}
                     </span>
                   </button>
                   {showAudioSelector && (
                     <div className="absolute bottom-full mb-2 right-0 bg-slate-800 rounded-lg shadow-lg py-1 min-w-[140px]">
-                      {audioTracks.map((track, index) => (
+                      {audioTracks?.map((track, index) => (
                         <button
                           key={index}
                           onClick={() => {
                             setSelectedTrackIndex(index);
                             setShowAudioSelector(false);
-                            if (videoRef.current) {
-                              videoRef.current.load();
-                            }
                           }}
                           className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-700 transition-colors ${
                             selectedTrackIndex === index
@@ -458,7 +507,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                               : "text-white"
                           }`}
                         >
-                          {track.label}
+                          {track?.label}
                         </button>
                       ))}
                     </div>
