@@ -213,21 +213,54 @@ export default function LearningPage() {
 
   const handleVideoComplete = useCallback(async () => {
     console.log("📹 handleVideoComplete called, currentLesson:", currentLesson?.id, "videoCompleted:", videoCompleted);
-    if (!currentLesson || videoCompleted) {
-      console.log("⏭️ Skipping - no current lesson or already completed");
+    if (!courseId || !currentLesson || videoCompleted) {
+      console.log("⏭️ Skipping - no course/lesson or already completed");
       return;
     }
+
+    const quizQuestions = parseQuizQuestions(currentLesson?.content || null);
+    const lessonHasQuiz = quizQuestions.length > 0;
+
     try {
       console.log("📡 Calling updateVideoProgress API for lesson:", currentLesson.id);
       await updateVideoProgress(currentLesson.id);
       setVideoCompleted(true);
-      console("✅ Video progress updated, refreshing curriculum...");
+      console.log("✅ Video progress updated");
+
+      if (!lessonHasQuiz) {
+        console.log("📭 No quiz available, marking lesson complete and going to next...");
+        await api.learning.completeLesson(currentLesson.id);
+
+        const allLessons = curriculum.flatMap((section) => section.items);
+        const currentIndex = allLessons.findIndex((l) => l.id === currentLesson.id);
+        if (currentIndex >= 0 && currentIndex < allLessons.length - 1) {
+          const nextLesson = allLessons[currentIndex + 1];
+          const lessonData = await api.learning.getLesson(nextLesson.id);
+          const hasQuiz = parseQuizQuestions(lessonData.content).length > 0;
+          setCurrentLesson({
+            ...lessonData,
+            hasQuiz,
+            videoCompleted: nextLesson.videoCompleted,
+            quizCompleted: nextLesson.quizCompleted,
+            quizScore: null,
+            quizStarted: false,
+            completed: nextLesson.completed,
+          } as CurrentLesson);
+          setVideoCompleted(nextLesson.videoCompleted);
+          setQuizCompleted(nextLesson.quizCompleted);
+          setQuizScore(null);
+          setQuizSubmitted(false);
+          router.replace(`/learning?courseId=${courseId}&lessonOrderIndex=${nextLesson.orderIndex}`);
+        }
+      }
+
+      console.log("✅ Refreshing curriculum...");
       await fetchCurriculum();
       console.log("✅ Curriculum refreshed");
     } catch (err) {
       console.error("❌ Failed to update video progress:", err);
     }
-  }, [currentLesson, videoCompleted, updateVideoProgress, setVideoCompleted, fetchCurriculum]);
+  }, [courseId, currentLesson, videoCompleted, curriculum, updateVideoProgress, setVideoCompleted, setCurrentLesson, setQuizCompleted, setQuizScore, setQuizSubmitted, router, fetchCurriculum]);
 
   const handleQuizSubmit = useCallback(async (answers: Record<number, number>, score: { correct: number; total: number }) => {
     if (!currentLesson) return;

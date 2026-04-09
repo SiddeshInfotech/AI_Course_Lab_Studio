@@ -58,6 +58,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [selectedTrackIndex, setSelectedTrackIndex] = useState(0);
     const [showAudioSelector, setShowAudioSelector] = useState(false);
     const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [maxWatchedTime, setMaxWatchedTime] = useState(0);
+    const [videoCompleted, setVideoCompleted] = useState(false);
 
     // Audio tracks available for language switching
     const hasAudioTracks = audioTracks && audioTracks.length > 0;
@@ -188,6 +190,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Reset completion flag when video source changes (new lesson)
     useEffect(() => {
       hasCalledCompleteRef.current = false;
+      setMaxWatchedTime(0);
+      setVideoCompleted(false);
       console.log("🔄 Video source changed, reset completion flag");
     }, [videoSourceUrl]);
 
@@ -225,10 +229,16 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const progress = (video.currentTime / video.duration) * 100;
       onProgress?.(progress);
 
+      // Track maximum watched position
+      if (video.currentTime > maxWatchedTime) {
+        setMaxWatchedTime(video.currentTime);
+      }
+
       // Video completion detection at 90%
       if (video.duration > 0 && progress >= 90 && !hasCalledCompleteRef.current) {
         console.log("🎬 Video progress reached 90%, marking as complete");
         hasCalledCompleteRef.current = true;
+        setVideoCompleted(true);
         onVideoComplete?.();
       }
     };
@@ -265,6 +275,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const rect = progress.getBoundingClientRect();
       const pos = (e.clientX - rect.left) / rect.width;
       const newTime = pos * video.duration;
+
+      // Block forward seeking unless video is completed or going backward
+      if (newTime > maxWatchedTime && !videoCompleted) {
+        return;
+      }
+      
       video.currentTime = newTime;
       // Also seek audio to match
       if (audioRef.current) {
